@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Blocker sync",
+  "version": "1.0",
+  "description": "Blocks sites based on the local blocker app's current state.",
+  "permissions": ["declarativeNetRequest", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
