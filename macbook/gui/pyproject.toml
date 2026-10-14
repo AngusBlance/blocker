@@ -1,0 +1,43 @@
+[project]
+name = "blocker-gui"
+version = "0.1.0"
+description = "Cross-platform desktop app for the blocker, built with PySide6 (Qt)."
+requires-python = ">=3.9"
+dependencies = [
+    "PySide6>=6.8",
+    "blocklib",
+]
+
+[project.scripts]
+blocker-gui = "blocker_gui.app:main"
+
+[dependency-groups]
+dev = ["pytest", "pytest-qt", "ruff>=0.14"]
+
+[tool.uv]
+# Its own project, not a member of the macbook/ workspace, so it can live
+# here without touching anything outside macbook/gui.
+package = true
+
+[tool.uv.sources]
+blocklib = { path = "../blocklib", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blocker_gui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["blocklib", "blocker_gui"]
