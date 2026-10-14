@@ -1,7 +1,7 @@
 name: CI
 
-# Lint and test every part of the repo on pull requests and on main. Each
-# language is its own job so a failure says straight away which part broke.
+# Lint and test every part of the repo on pull requests and on main, one job
+# per platform and language so a failure says straight away which part broke.
 # The live tests that edit the real /etc/hosts stay skipped here; run them
 # yourself with RUN_LIVE_HOSTS_TESTS=1.
 
@@ -15,10 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: Python (blocklib, tui)
+  macbook-python:
+    name: macbook / Python
     # The desktop app is macOS-only (sudo, /etc/hosts, launchd).
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: macbook
     steps:
       - uses: actions/checkout@v7
 
@@ -34,19 +37,22 @@ jobs:
 
       # Each suite has its own conftest and rootdir, so run them separately.
       - name: Test blocklib
-        working-directory: blocklib
+        working-directory: macbook/blocklib
         run: uv run --all-packages pytest
 
       - name: Test tui
-        working-directory: tui
+        working-directory: macbook/tui
         run: uv run --all-packages pytest
 
       - name: Test packaging
         run: uv run --all-packages pytest tests
 
-  js:
-    name: JS/TS (android-mobile, androidlib, extension)
+  macbook-extension:
+    name: macbook / Chrome extension
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: macbook
     steps:
       - uses: actions/checkout@v7
 
@@ -54,6 +60,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: macbook/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint and check formatting
+        run: npm run lint
+
+  android-js:
+    name: android / JS/TS
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: android/package-lock.json
 
       - run: npm ci
 
@@ -69,9 +96,12 @@ jobs:
       - name: Typecheck androidlib
         run: npx tsc --noEmit -p androidlib
 
-  kotlin:
-    name: Kotlin (androidlib)
+  android-kotlin:
+    name: android / Kotlin
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
     env:
       KTLINT_VERSION: 1.8.0
     steps:
@@ -84,9 +114,9 @@ jobs:
 
       - name: Install ktlint
         run: |
-          curl -sSLf -o ktlint \
+          curl -sSLf -o "$RUNNER_TEMP/ktlint" \
             "https://github.com/pinterest/ktlint/releases/download/$KTLINT_VERSION/ktlint"
-          chmod +x ktlint
+          chmod +x "$RUNNER_TEMP/ktlint"
 
       - name: Lint
-        run: ./ktlint "androidlib/**/*.kt"
+        run: '"$RUNNER_TEMP/ktlint" "androidlib/**/*.kt"'
