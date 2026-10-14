@@ -1,3 +1,4 @@
+import { SetupSteps } from '../SetupSteps';
 import { SITES, isSiteBlocked } from '../sites';
 import { colors } from '../theme';
 import { Button, Field, Muted, Pane } from '../ui';
@@ -10,10 +11,12 @@ export function HomeScreen({ blocker, go }: { blocker: Blocker; go: (tab: Tab) =
   return (
     <>
       {!blocker.serviceEnabled && (
-        <Pane title="Service off" tone="error">
-          <Muted>Sites and apps won't be blocked until Blocker is on in Accessibility settings.</Muted>
-          <Button title="set up" onPress={() => go('settings')} />
-        </Pane>
+        <>
+          <Pane title="Not blocking yet" tone="error">
+            <Muted>nothing gets blocked until you do the steps below.</Muted>
+          </Pane>
+          <SetupSteps blocker={blocker} />
+        </>
       )}
       <Pane title="Status" focused>
         <Field
