@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: macbook
+        working-directory: macbook/extension
     steps:
       - uses: actions/checkout@v7
 
@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: macbook/package-lock.json
+          cache-dependency-path: macbook/extension/package-lock.json
 
       - run: npm ci
 

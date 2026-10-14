@@ -65,3 +65,5 @@ def test_print_extension_instructions_points_at_the_real_extension_dir(
     out = capsys.readouterr().out
     assert str(installer.EXTENSION_DIR) in out
     assert "Developer mode" in out
+    # Chrome needs the folder holding manifest.json, not the one with node_modules.
+    assert (installer.EXTENSION_DIR / "manifest.json").is_file()

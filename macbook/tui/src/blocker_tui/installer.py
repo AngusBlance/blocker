@@ -8,7 +8,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 # a hand-rolled `python -m` invocation - same as Block.app calling `block`
 # rather than reaching around it with a raw interpreter command
 VENV_BLOCKER_SYNC = REPO_ROOT / ".venv" / "bin" / "blocker-sync"
-EXTENSION_DIR = REPO_ROOT / "extension"
+# The loadable extension; extension/ itself also holds its lint tooling.
+EXTENSION_DIR = REPO_ROOT / "extension" / "src"
 
 APP_BUNDLE = Path.home() / "Applications" / "Block.app"
 # overridable so integration tests can bootstrap a disposable, self-cleaning
