@@ -73,6 +73,7 @@ export function useBlocker() {
     // Wrapped so a press event passed by onPress never reaches the native
     // function, which rejects extra arguments.
     openAccessibilitySettings: () => Androidlib.openAccessibilitySettings(),
+    openAppInfo: () => Androidlib.openAppInfo(),
   };
 }
 

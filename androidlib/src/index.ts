@@ -10,6 +10,7 @@ declare class AndroidlibModule extends NativeModule {
   getUnlockPassword(): string;
   isServiceEnabled(): boolean;
   openAccessibilitySettings(): void;
+  openAppInfo(): void;
 }
 
 export default requireNativeModule<AndroidlibModule>('Androidlib');
