@@ -10,6 +10,7 @@ Site blocker for macOS and Android.
 - `android/`: JS (npm) and Kotlin.
   - `androidlib/`: Kotlin accessibility-service backend.
   - `android-mobile/`: Expo / React Native app.
+  - `android-flutter/`: the same app in Flutter, on the same `androidlib` Kotlin backend.
 
 ## macOS
 
@@ -48,6 +49,9 @@ cd macbook/extension && npm ci && npm run lint
 cd android && npm ci
 npx eslint . && npx prettier --check .
 npx tsc --noEmit -p android-mobile && npx tsc --noEmit -p androidlib
+
+# android: Flutter
+cd android/android-flutter && flutter analyze && flutter test
 
 # android: Kotlin, with ktlint installed
 cd android && ktlint "androidlib/**/*.kt"
