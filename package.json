@@ -1,0 +1,8 @@
+{
+  "name": "blocker",
+  "private": true,
+  "workspaces": [
+    "android-mobile",
+    "androidlib"
+  ]
+}

@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service
+      android:name="com.angusblance.androidlib.BlockerAccessibilityService"
+      android:exported="false"
+      android:label="@string/androidlib_service_label"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/androidlib_accessibility_config" />
+    </service>
+
+    <activity
+      android:name="com.angusblance.androidlib.BlockedActivity"
+      android:excludeFromRecents="true"
+      android:exported="false"
+      android:launchMode="singleTask"
+      android:taskAffinity="com.angusblance.androidlib.blocked"
+      android:theme="@android:style/Theme.Material.NoActionBar" />
+  </application>
+</manifest>
