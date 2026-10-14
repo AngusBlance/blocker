@@ -1,6 +1,9 @@
+import os
 import socket
 import subprocess
 import time
+
+import pytest
 
 from blocklib.core import HostsBlocker
 from blocklib.domain import known_domains
@@ -16,14 +19,26 @@ def resolved_ip(url: str) -> str:
 
 
 def ping_once(url: str) -> str:
-    result = subprocess.run(["ping", "-c", "1", "-t", "2", url], capture_output=True, text=True)
+    result = subprocess.run(
+        ["ping", "-c", "1", "-t", "2", url], capture_output=True, text=True
+    )
     return "replied" if result.returncode == 0 else "no reply"
 
 
 def is_reachable_over_http(url: str) -> bool:
     """Actually attempts a connection to the real website, not just DNS."""
     result = subprocess.run(
-        ["curl", "-s", "-o", "/dev/null", "--max-time", "4", "-w", "%{http_code}", f"https://{url}"],
+        [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "--max-time",
+            "4",
+            "-w",
+            "%{http_code}",
+            f"https://{url}",
+        ],
         capture_output=True,
         text=True,
     )
@@ -102,6 +117,10 @@ def test_bulk_block_unblock_block_cycle_is_stable_over_multiple_repeats(tmp_path
     assert path.read_text().count("127.0.0.1 localhost") == 1
 
 
+@pytest.mark.skipif(
+    not os.environ.get("RUN_LIVE_HOSTS_TESTS"),
+    reason="edits the real /etc/hosts with sudo - opt in with RUN_LIVE_HOSTS_TESTS=1",
+)
 def test_speed_unblock_then_block_all_against_real_hosts(capsys):
     """
     LIVE test against the real /etc/hosts AND real network reachability -
@@ -135,7 +154,9 @@ def test_speed_unblock_then_block_all_against_real_hosts(capsys):
             ip = resolved_ip(url)
             reachable = is_reachable_over_http(url)
             ping = ping_once(url)
-            print(f"  {url:24s} resolves={ip:16s} http_reachable={reachable!s:5s} ping={ping}")
+            print(
+                f"  {url:24s} resolves={ip:16s} http_reachable={reachable!s:5s} ping={ping}"
+            )
             if ip not in ("127.0.0.1", "::1"):
                 failures.append(f"{url}: resolved to {ip}, not localhost")
             if reachable:
@@ -146,5 +167,7 @@ def test_speed_unblock_then_block_all_against_real_hosts(capsys):
             for f in failures:
                 print(f"  - {f}")
 
-    assert not failures, f"{len(failures)} domain(s) not actually blocked - see output above"
+    assert not failures, (
+        f"{len(failures)} domain(s) not actually blocked - see output above"
+    )
     assert elapsed < 30  # sanity ceiling - catches a hang, not a perf budget

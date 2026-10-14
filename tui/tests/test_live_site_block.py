@@ -1,8 +1,16 @@
+import os
 import socket
 import subprocess
 
+import pytest
+
 from blocker_tui.app import BlockerApp
 from blocklib.core import HostsBlocker
+
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("RUN_LIVE_HOSTS_TESTS"),
+    reason="edits the real /etc/hosts with sudo - opt in with RUN_LIVE_HOSTS_TESTS=1",
+)
 
 NETFLIX_URLS = ["netflix.com", "www.netflix.com"]
 
@@ -26,7 +34,17 @@ def ping_once(url: str) -> str:
 def is_reachable_over_http(url: str) -> bool:
     """Actually attempts a connection to the real website, not just DNS."""
     result = subprocess.run(
-        ["curl", "-s", "-o", "/dev/null", "--max-time", "4", "-w", "%{http_code}", f"https://{url}"],
+        [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "--max-time",
+            "4",
+            "-w",
+            "%{http_code}",
+            f"https://{url}",
+        ],
         capture_output=True,
         text=True,
     )
@@ -49,7 +67,9 @@ async def test_block_netflix_via_keystrokes_then_verify_unreachable():
     for url in NETFLIX_URLS:
         ip = resolved_ip(url)
         reachable = is_reachable_over_http(url)
-        print(f"before block: {url} -> {ip} (ping: {ping_once(url)}, http reachable: {reachable})")
+        print(
+            f"before block: {url} -> {ip} (ping: {ping_once(url)}, http reachable: {reachable})"
+        )
         assert ip not in ("127.0.0.1", "::1")
         assert reachable is True
 
@@ -65,6 +85,8 @@ async def test_block_netflix_via_keystrokes_then_verify_unreachable():
         assert blocker.is_blocked(url)
         ip = resolved_ip(url)
         reachable = is_reachable_over_http(url)
-        print(f"after block: {url} -> {ip} (ping: {ping_once(url)}, http reachable: {reachable})")
+        print(
+            f"after block: {url} -> {ip} (ping: {ping_once(url)}, http reachable: {reachable})"
+        )
         assert ip == "127.0.0.1"
         assert reachable is False
