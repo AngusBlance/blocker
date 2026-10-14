@@ -29,10 +29,7 @@ export function UnlockScreen({
   }
 
   function submit() {
-    const ok = blocker.unblock(
-      typed,
-      targets.flatMap((s) => s.domains),
-    );
+    const ok = blocker.unblock(typed, targets);
     if (ok) {
       setTyped('');
       done();

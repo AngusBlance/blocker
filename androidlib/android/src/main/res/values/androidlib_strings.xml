@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="androidlib_service_label">Blocker</string>
-  <string name="androidlib_service_description">Reads the web address in your browser and closes sites on your block list. Everything stays on this phone.</string>
+  <string name="androidlib_service_description">Reads the web address in your browser and which app is open, and closes sites and apps on your block list. Everything stays on this phone.</string>
 </resources>

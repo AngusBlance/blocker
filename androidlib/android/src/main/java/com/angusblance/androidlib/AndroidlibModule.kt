@@ -23,12 +23,16 @@ class AndroidlibModule : Module() {
       store.blockedDomains.sorted()
     }
 
-    Function("block") { domains: List<String> ->
-      store.block(domains)
+    Function("getBlockedApps") {
+      store.blockedApps.sorted()
     }
 
-    Function("unblock") { password: String, domains: List<String> ->
-      store.unblock(password, domains)
+    Function("block") { domains: List<String>, apps: List<String> ->
+      store.block(domains, apps)
+    }
+
+    Function("unblock") { password: String, domains: List<String>, apps: List<String> ->
+      store.unblock(password, domains, apps)
     }
 
     Function("getUnlockPassword") {

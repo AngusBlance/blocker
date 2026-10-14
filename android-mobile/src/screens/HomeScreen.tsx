@@ -11,7 +11,7 @@ export function HomeScreen({ blocker, go }: { blocker: Blocker; go: (tab: Tab) =
     <>
       {!blocker.serviceEnabled && (
         <Pane title="Service off" tone="error">
-          <Muted>Sites won't be blocked until Blocker is on in Accessibility settings.</Muted>
+          <Muted>Sites and apps won't be blocked until Blocker is on in Accessibility settings.</Muted>
           <Button title="set up" onPress={() => go('settings')} />
         </Pane>
       )}

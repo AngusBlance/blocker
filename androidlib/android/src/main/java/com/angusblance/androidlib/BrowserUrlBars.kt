@@ -1,8 +1,7 @@
 package com.angusblance.androidlib
 
 // Browser package -> view ids of its address bar. Browsers rename these
-// between versions, so this list is the part that needs maintaining. Keep the
-// packages in sync with packageNames in androidlib_accessibility_config.xml.
+// between versions, so this list is the part that needs maintaining.
 object BrowserUrlBars {
   private val ids = mapOf(
     "com.android.chrome" to listOf("com.android.chrome:id/url_bar"),

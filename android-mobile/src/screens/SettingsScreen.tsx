@@ -17,10 +17,11 @@ export function SettingsScreen({ blocker }: { blocker: Blocker }) {
   return (
     <Pane title="Before you turn it on" focused>
       <Muted>
-        Blocker uses Android's Accessibility service to read the web address in your browser. It
-        checks that address against your block list, on this phone only. Nothing is sent anywhere.
+        Blocker uses Android's Accessibility service to read the web address in your browser and
+        see which app is open. It checks those against your block list, on this phone only.
+        Nothing is sent anywhere.
       </Muted>
-      <Muted>It doesn't read passwords, messages or other apps.</Muted>
+      <Muted>It doesn't read passwords, messages or what's inside other apps.</Muted>
       <Button primary title="agree and open settings" onPress={blocker.openAccessibilitySettings} />
     </Pane>
   );

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only browsers are watched; BrowserUrlBars.kt must list the same packages. -->
+<!-- No packageNames filter: blocked apps can be any package, so the service
+     filters by package itself (blocked apps, then BrowserUrlBars.kt). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
   android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
   android:accessibilityFeedbackType="feedbackGeneric"
@@ -7,5 +8,4 @@
   android:canRetrieveWindowContent="true"
   android:description="@string/androidlib_service_description"
   android:isAccessibilityTool="false"
-  android:notificationTimeout="300"
-  android:packageNames="com.android.chrome,com.chrome.beta,com.brave.browser,com.microsoft.emmx,org.mozilla.firefox,com.sec.android.app.sbrowser,com.opera.browser,com.duckduckgo.mobile.android" />
+  android:notificationTimeout="300" />

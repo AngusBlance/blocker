@@ -16,7 +16,7 @@ export function SitesScreen({
 
   function toggle(site: Site) {
     if (isSiteBlocked(site, blocker.blocked)) requestUnlock(site);
-    else blocker.block(site.domains);
+    else blocker.block([site]);
   }
 
   return (
@@ -35,7 +35,7 @@ export function SitesScreen({
               <Mono style={on ? styles.on : styles.off}>{on ? '(x)' : '( )'}</Mono>
               <View style={styles.meta}>
                 <Mono>{site.name}</Mono>
-                <Mono style={styles.domains}>{site.domains.join(', ')}</Mono>
+                <Mono style={styles.domains}>{site.domains.join(', ')} + app</Mono>
               </View>
             </Pressable>
           );
