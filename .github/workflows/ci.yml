@@ -1,0 +1,92 @@
+name: CI
+
+# Lint and test every part of the repo on pull requests and on main. Each
+# language is its own job so a failure says straight away which part broke.
+# The live tests that edit the real /etc/hosts stay skipped here; run them
+# yourself with RUN_LIVE_HOSTS_TESTS=1.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (blocklib, tui)
+    # The desktop app is macOS-only (sudo, /etc/hosts, launchd).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - run: uv sync --all-packages --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      # Each suite has its own conftest and rootdir, so run them separately.
+      - name: Test blocklib
+        working-directory: blocklib
+        run: uv run --all-packages pytest
+
+      - name: Test tui
+        working-directory: tui
+        run: uv run --all-packages pytest
+
+      - name: Test packaging
+        run: uv run --all-packages pytest tests
+
+  js:
+    name: JS/TS (android-mobile, androidlib, extension)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+      - name: Typecheck android-mobile
+        run: npx tsc --noEmit -p android-mobile
+
+      - name: Typecheck androidlib
+        run: npx tsc --noEmit -p androidlib
+
+  kotlin:
+    name: Kotlin (androidlib)
+    runs-on: ubuntu-latest
+    env:
+      KTLINT_VERSION: 1.8.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install ktlint
+        run: |
+          curl -sSLf -o ktlint \
+            "https://github.com/pinterest/ktlint/releases/download/$KTLINT_VERSION/ktlint"
+          chmod +x ktlint
+
+      - name: Lint
+        run: ./ktlint "androidlib/**/*.kt"
