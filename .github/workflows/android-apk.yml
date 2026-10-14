@@ -1,18 +1,21 @@
 name: Android APK
 
-# Builds a standalone, release-signed APK of android-mobile and publishes it as
-# the "android-latest" GitHub release, so it can be downloaded straight to a
-# phone. Every build is signed with the same key (from repo secrets), so a new
-# APK installs over the old one and keeps the block list and password.
+# Builds a standalone APK of android/android-mobile. On pull requests it only
+# checks the app still builds (this is what compiles the Kotlin). On main it
+# also signs it and publishes it as the "android-latest" GitHub release, so it
+# can be downloaded straight to a phone. Every build is signed with the same
+# key (from repo secrets), so a new APK installs over the old one and keeps the
+# block list and password.
 
 on:
   push:
-    branches: [main, feat/android-app]
+    branches: [main]
     paths:
-      - android-mobile/**
-      - androidlib/**
-      - package.json
-      - package-lock.json
+      - android/**
+      - .github/workflows/android-apk.yml
+  pull_request:
+    paths:
+      - android/**
       - .github/workflows/android-apk.yml
   workflow_dispatch:
 
@@ -20,58 +23,63 @@ permissions:
   contents: write
 
 concurrency:
-  group: android-apk
+  group: android-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: android/package-lock.json
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - run: npm ci
+        working-directory: android
 
       - name: Generate native Android project
-        working-directory: android-mobile
+        working-directory: android/android-mobile
         run: npx expo prebuild --platform android --no-install
 
       - name: Build release APK
-        working-directory: android-mobile/android
+        working-directory: android/android-mobile/android
         # Phones are arm64; skipping the other ABIs roughly halves build time.
         run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
 
       - name: Sign with the release key
+        if: github.event_name != 'pull_request'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          cp android-mobile/android/app/build/outputs/apk/release/app-release.apk blocker.apk
+          cp android/android-mobile/android/app/build/outputs/apk/release/app-release.apk blocker.apk
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$RUNNER_TEMP/release.jks" --ks-key-alias blocker \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD \
             blocker.apk
           "$BUILD_TOOLS/apksigner" verify blocker.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           name: blocker-apk
           path: blocker.apk
 
       - name: Publish android-latest release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

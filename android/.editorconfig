@@ -1,0 +1,8 @@
+root = true
+
+[*.{kt,kts}]
+# Expo modules indent Kotlin with 2 spaces.
+indent_size = 2
+indent_style = space
+max_line_length = 100
+ktlint_code_style = intellij_idea
