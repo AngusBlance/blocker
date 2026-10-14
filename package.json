@@ -4,5 +4,12 @@
   "workspaces": [
     "android-mobile",
     "androidlib"
-  ]
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.2",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.10"
+  }
 }
