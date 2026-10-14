@@ -4,7 +4,8 @@ Site blocker for macOS and Android.
 
 - `macbook/`: Python (uv), plus the Chrome extension.
   - `blocklib/`: backend, blocks sites by editing `/etc/hosts`.
-  - `tui/`: Textual app, the `block` command.
+  - `tui/`: Textual app, the `block` command (keyboard-driven).
+  - `gui/`: Textual app, the `block-gui` command (click-driven, same backend).
   - `extension/`: Chrome extension that syncs with the desktop app. `src/` is what Chrome loads; the rest is its own npm lint setup.
   - `tests/`: packaging tests.
 - `android/`: JS (npm) and Kotlin.
@@ -18,6 +19,8 @@ cd macbook
 uv tool install --editable ./tui
 block install
 ```
+
+For the click-driven version, run `uv run block-gui` from `macbook/`. It runs in your terminal like the TUI.
 
 `block install` sets up the sync agent and walks you through loading `macbook/extension/src` in Chrome.
 
@@ -39,6 +42,7 @@ cd macbook
 uv run ruff check . && uv run ruff format --check .
 (cd blocklib && uv run --all-packages pytest)
 (cd tui && uv run --all-packages pytest)
+(cd gui && uv run --all-packages pytest)
 uv run --all-packages pytest tests
 
 # macbook: Chrome extension

@@ -44,6 +44,10 @@ jobs:
         working-directory: macbook/tui
         run: uv run --all-packages pytest
 
+      - name: Test gui
+        working-directory: macbook/gui
+        run: uv run --all-packages pytest
+
       - name: Test packaging
         run: uv run --all-packages pytest tests
 
