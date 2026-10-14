@@ -104,7 +104,8 @@ class SiteCard(QFrame):
 
 
 class SiteTile(QPushButton):
-    """A square dashboard tile per site, like the Android app's tab tiles."""
+    """A square dashboard tile per site, like the Android app's tab tiles.
+    Clicking it blocks or unblocks the site, same as its switch."""
 
     def __init__(self, name: str) -> None:
         super().__init__()
@@ -232,13 +233,8 @@ class BlockerWindow(QMainWindow):
         self.block_all_button.setProperty("role", "primary")
         self.block_all_button.setCursor(Qt.PointingHandCursor)
         self.block_all_button.clicked.connect(self.block_everything)
-        choose = QPushButton("choose sites")
-        choose.setCursor(Qt.PointingHandCursor)
-        choose.clicked.connect(lambda: self.show_section("sites"))
         buttons = QHBoxLayout()
-        buttons.setSpacing(12)
         buttons.addWidget(self.block_all_button)
-        buttons.addWidget(choose)
         buttons.addStretch()
         layout.addLayout(buttons)
 
@@ -249,7 +245,7 @@ class BlockerWindow(QMainWindow):
         self.tiles = {}
         for name, _, _ in site_groups(self.hosts_path):
             tile = SiteTile(name)
-            tile.clicked.connect(lambda: self.show_section("sites"))
+            tile.clicked.connect(lambda _=False, n=name: self.toggle_site(n))
             self.tiles[name] = tile
             tiles.addWidget(tile)
         layout.addLayout(tiles)
@@ -331,6 +327,13 @@ class BlockerWindow(QMainWindow):
         self.refresh()
 
     # -- actions ----------------------------------------------------------
+
+    def toggle_site(self, name: str) -> None:
+        card = self.site_cards[name]
+        if card.toggle.is_on():
+            self.unblock_site(card)
+        else:
+            self.block_site(card)
 
     def block_everything(self) -> None:
         self._change(

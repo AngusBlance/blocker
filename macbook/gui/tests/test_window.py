@@ -81,9 +81,19 @@ def test_changes_made_outside_the_app_show_up_live(window, qtbot, isolated):
     assert window.big_state.text() == "BLOCKED"
 
 
-def test_dashboard_tiles_follow_the_block_state(window, qtbot):
-    qtbot.mouseClick(window.site_cards["Netflix"].toggle, Qt.LeftButton)
+def test_clicking_a_dashboard_tile_blocks_that_site_in_place(window, qtbot, isolated):
+    qtbot.mouseClick(window.tiles["Netflix"], Qt.LeftButton)
+    assert blocked(isolated) == {"netflix.com", "www.netflix.com"}
     assert window.tiles["Netflix"].text().startswith("(x)")
     assert window.tiles["YouTube"].text().startswith("( )")
+    assert window.pages.currentIndex() == 0  # stays on the dashboard
+
+
+def test_clicking_a_blocked_tile_asks_for_the_password(
+    window, qtbot, isolated, monkeypatch
+):
     qtbot.mouseClick(window.tiles["YouTube"], Qt.LeftButton)
-    assert window.pages.currentIndex() == 1
+    monkeypatch.setattr(dialogs.UnlockDialog, "exec", lambda self: QDialog.Accepted)
+    qtbot.mouseClick(window.tiles["YouTube"], Qt.LeftButton)
+    assert blocked(isolated) == set()
+    assert window.tiles["YouTube"].text().startswith("( )")
