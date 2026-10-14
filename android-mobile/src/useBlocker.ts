@@ -69,8 +69,10 @@ export function useBlocker() {
     serviceEnabled,
     block,
     unblock,
-    unlockPassword: Androidlib.getUnlockPassword,
-    openAccessibilitySettings: Androidlib.openAccessibilitySettings,
+    unlockPassword: () => Androidlib.getUnlockPassword(),
+    // Wrapped so a press event passed by onPress never reaches the native
+    // function, which rejects extra arguments.
+    openAccessibilitySettings: () => Androidlib.openAccessibilitySettings(),
   };
 }
 
