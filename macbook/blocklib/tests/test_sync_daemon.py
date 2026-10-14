@@ -56,11 +56,14 @@ def test_daemon_subprocess_exits_cleanly_on_sigterm():
     proc = subprocess.Popen(
         [sys.executable, "-m", "blocklib.sync_daemon"],
         env=env,
-        stdout=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        text=True,
     )
     try:
-        time.sleep(0.5)  # let it bind and reach stop.wait()
+        # A fixed sleep raced slow CI machines: SIGTERM arrived before the
+        # handler was installed and killed the process outright.
+        assert "starting" in proc.stdout.readline()
         proc.send_signal(signal.SIGTERM)
         exit_code = proc.wait(timeout=5)
     finally:

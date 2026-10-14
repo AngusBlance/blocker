@@ -23,6 +23,8 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
+    # Printed once signals are handled; tests wait for it before sending one.
+    print(f"blocker-sync starting on port {port}", flush=True)
 
     run(server, stop)
 
