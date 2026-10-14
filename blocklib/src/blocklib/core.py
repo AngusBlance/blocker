@@ -70,7 +70,7 @@ class HostsBlocker:
             end = lines.index(END_MARK)
         except ValueError:
             return None
-        return lines[start + 1:end]
+        return lines[start + 1 : end]
 
     @staticmethod
     def _line_is_for_url(line: str, url: str) -> bool:
@@ -115,13 +115,17 @@ class HostsBlocker:
         except ValueError:
             return content
 
-        block_lines = lines[start + 1:end]
-        remaining = [l for l in block_lines if not cls._line_is_for_url(l, url)]
+        block_lines = lines[start + 1 : end]
+        remaining = [
+            line for line in block_lines if not cls._line_is_for_url(line, url)
+        ]
 
         if remaining:
-            new_lines = lines[:start] + [BEGIN_MARK] + remaining + [END_MARK] + lines[end + 1:]
+            new_lines = (
+                lines[:start] + [BEGIN_MARK] + remaining + [END_MARK] + lines[end + 1 :]
+            )
         else:
-            new_lines = lines[:start] + lines[end + 1:]
+            new_lines = lines[:start] + lines[end + 1 :]
 
         return "\n".join(new_lines) + "\n" if new_lines else ""
 

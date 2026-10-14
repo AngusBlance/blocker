@@ -68,16 +68,19 @@ class AndroidlibModule : Module() {
         .putExtra(Intent.EXTRA_COMPONENT_NAME, component)
       val list = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         .putExtra(":settings:fragment_args_key", component)
-        .putExtra(":settings:show_fragment_args", Bundle().apply {
-          putString(":settings:fragment_args_key", component)
-        })
+        .putExtra(
+          ":settings:show_fragment_args",
+          Bundle().apply {
+            putString(":settings:fragment_args_key", component)
+          },
+        )
       tryStart(details) || tryStart(list)
     }
 
     Function("openAppInfo") {
       tryStart(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-          .setData(Uri.parse("package:${context.packageName}"))
+          .setData(Uri.parse("package:${context.packageName}")),
       )
     }
   }

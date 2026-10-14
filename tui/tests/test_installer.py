@@ -40,7 +40,9 @@ def test_install_sync_daemon_writes_plist_pointing_at_the_entry_point_and_bootst
     assert [cmd[1] for cmd in calls] == ["bootstrap"]
 
 
-def test_install_sync_daemon_reloads_cleanly_when_already_installed(tmp_path, monkeypatch):
+def test_install_sync_daemon_reloads_cleanly_when_already_installed(
+    tmp_path, monkeypatch
+):
     plist_path = tmp_path / "agent.plist"
     plist_path.write_text("stale previous install")
     monkeypatch.setattr(installer, "LAUNCH_AGENT_PLIST", plist_path)
@@ -53,7 +55,9 @@ def test_install_sync_daemon_reloads_cleanly_when_already_installed(tmp_path, mo
     assert [cmd[1] for cmd in calls] == ["bootout", "bootstrap"]
 
 
-def test_print_extension_instructions_points_at_the_real_extension_dir(monkeypatch, capsys):
+def test_print_extension_instructions_points_at_the_real_extension_dir(
+    monkeypatch, capsys
+):
     monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: None)
 
     installer.print_extension_instructions()

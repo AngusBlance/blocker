@@ -5,16 +5,17 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-from blocklib.core import HOSTS_FILE, HostsBlocker
-from blocklib.domain import known_domains
-from blocklib.password import get_password, is_password_set, setup_password
-from blocklib.ws_server import DEFAULT_WS_PORT, SyncServer, notify_external_daemon
 from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
+
+from blocklib.core import HOSTS_FILE, HostsBlocker
+from blocklib.domain import known_domains
+from blocklib.password import get_password, is_password_set, setup_password
+from blocklib.ws_server import DEFAULT_WS_PORT, SyncServer, notify_external_daemon
 
 SECTIONS = ["dashboard", "sites", "schedule", "unlock", "activity", "settings"]
 
@@ -56,7 +57,9 @@ def site_groups(hosts_path: Path = HOSTS_FILE) -> list:
 
 def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
     groups = site_groups(hosts_path)
-    blocked_count = sum(1 for _, members in groups if all(d.is_blocked for d in members))
+    blocked_count = sum(
+        1 for _, members in groups if all(d.is_blocked for d in members)
+    )
     lines = ["BLOCKED SITES", f"  {len(groups)} sites, {blocked_count} blocked", ""]
     for i, (name, members) in enumerate(groups):
         cursor = ">" if i == site_index else " "
@@ -318,7 +321,9 @@ class BlockerApp(App):
             return
 
         if not is_password_set():
-            if self._run_privileged(lambda: blocker.unblock_all(urls), f"Unlocked {name}"):
+            if self._run_privileged(
+                lambda: blocker.unblock_all(urls), f"Unlocked {name}"
+            ):
                 self._notify_sync()
             content.refresh(layout=True)
             return
@@ -329,7 +334,9 @@ class BlockerApp(App):
             if correct is False:
                 self.notify("Incorrect password", severity="error")
                 return
-            if self._run_privileged(lambda: blocker.unblock_all(urls), f"Unlocked {name}"):
+            if self._run_privileged(
+                lambda: blocker.unblock_all(urls), f"Unlocked {name}"
+            ):
                 self._notify_sync()
             content.refresh(layout=True)
 

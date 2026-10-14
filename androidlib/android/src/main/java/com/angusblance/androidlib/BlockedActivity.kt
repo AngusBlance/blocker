@@ -40,17 +40,21 @@ class BlockedActivity : Activity() {
     val host = intent.getStringExtra(EXTRA_HOST) ?: "this site"
     addView(mono("BLOCKED", 14f, ACCENT).apply { setTypeface(typeface, Typeface.BOLD) })
     addView(mono(host, 22f, FOREGROUND).apply { setPadding(0, 16, 0, 16) })
-    addView(mono("unblock it from the blocker app with your password.", 13f, MUTED).apply {
-      setPadding(0, 0, 0, 56)
-    })
-    addView(Button(context).apply {
-      text = "go to home screen"
-      typeface = Typeface.MONOSPACE
-      isAllCaps = false
-      setTextColor(BACKGROUND)
-      background = GradientDrawable().apply { setColor(ACCENT) }
-      setOnClickListener { goHome() }
-    })
+    addView(
+      mono("unblock it from the blocker app with your password.", 13f, MUTED).apply {
+        setPadding(0, 0, 0, 56)
+      },
+    )
+    addView(
+      Button(context).apply {
+        text = "go to home screen"
+        typeface = Typeface.MONOSPACE
+        isAllCaps = false
+        setTextColor(BACKGROUND)
+        background = GradientDrawable().apply { setColor(ACCENT) }
+        setOnClickListener { goHome() }
+      },
+    )
   }
 
   private fun mono(value: String, sizeSp: Float, color: Int) = TextView(this).apply {
@@ -65,7 +69,7 @@ class BlockedActivity : Activity() {
     startActivity(
       Intent(Intent.ACTION_MAIN)
         .addCategory(Intent.CATEGORY_HOME)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
     )
     finish()
   }

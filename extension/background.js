@@ -1,5 +1,5 @@
-const WS_URL = "ws://127.0.0.1:8766";
-const ALARM_NAME = "blocker-sync-fallback";
+const WS_URL = 'ws://127.0.0.1:8766';
+const ALARM_NAME = 'blocker-sync-fallback';
 const RULE_ID_BASE = 1000;
 
 let socket = null;
@@ -11,17 +11,10 @@ async function applyRules(domains) {
   const addRules = domains.map((domain, i) => ({
     id: RULE_ID_BASE + i,
     priority: 1,
-    action: { type: "block" },
+    action: { type: 'block' },
     condition: {
       urlFilter: `||${domain}^`,
-      resourceTypes: [
-        "main_frame",
-        "sub_frame",
-        "xmlhttprequest",
-        "script",
-        "image",
-        "media",
-      ],
+      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'image', 'media'],
     },
   }));
 
@@ -32,22 +25,25 @@ async function applyRules(domains) {
 }
 
 function connect() {
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+  if (
+    socket &&
+    (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+  ) {
     return; // already connected or connecting
   }
 
   socket = new WebSocket(WS_URL);
 
-  socket.addEventListener("message", (event) => {
+  socket.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
     applyRules(data.blocked);
   });
 
-  socket.addEventListener("close", () => {
+  socket.addEventListener('close', () => {
     socket = null;
   });
 
-  socket.addEventListener("error", () => {
+  socket.addEventListener('error', () => {
     socket = null;
   });
 }

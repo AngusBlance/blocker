@@ -60,7 +60,9 @@ def test_unlock_with_password_calls_unblock_all_on_match(monkeypatch, tmp_path):
     assert calls == [(tmp_path / "hosts", ["netflix.com"])]
 
 
-def test_unlock_with_password_does_not_call_unblock_all_on_mismatch(monkeypatch, tmp_path):
+def test_unlock_with_password_does_not_call_unblock_all_on_mismatch(
+    monkeypatch, tmp_path
+):
     path = tmp_path / "password.txt"
     path.write_text("0000")
     calls = []

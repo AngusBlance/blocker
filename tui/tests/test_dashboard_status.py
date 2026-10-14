@@ -1,4 +1,4 @@
-from blocker_tui.app import Content, BlockerApp, dashboard_text, get_status
+from blocker_tui.app import BlockerApp, Content, dashboard_text, get_status
 
 BASE = "127.0.0.1 localhost\n::1 localhost\n"
 WITH_BLOCK = (

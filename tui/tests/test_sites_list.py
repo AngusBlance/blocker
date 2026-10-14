@@ -1,4 +1,10 @@
-from blocker_tui.app import Content, BlockerApp, site_groups, sites_text, sites_with_status
+from blocker_tui.app import (
+    BlockerApp,
+    Content,
+    site_groups,
+    sites_text,
+    sites_with_status,
+)
 
 BASE = "127.0.0.1 localhost\n::1 localhost\n"
 WITH_NETFLIX_PARTIALLY_BLOCKED = (
@@ -40,7 +46,10 @@ def test_site_groups_groups_domains_by_service_name(tmp_path):
     groups = dict(site_groups(hosts))
     assert set(groups.keys()) == {"Netflix", "YouTube", "Crunchyroll"}
     assert {d.url for d in groups["Netflix"]} == {"netflix.com", "www.netflix.com"}
-    assert {d.url for d in groups["Crunchyroll"]} == {"crunchyroll.com", "www.crunchyroll.com"}
+    assert {d.url for d in groups["Crunchyroll"]} == {
+        "crunchyroll.com",
+        "www.crunchyroll.com",
+    }
 
 
 def test_sites_text_shows_fully_blocked_group(tmp_path):
@@ -63,7 +72,7 @@ def test_sites_text_marks_cursor_position(tmp_path):
     hosts = tmp_path / "hosts"
     hosts.write_text(BASE)
     text = sites_text(1, hosts)
-    selected_lines = [l for l in text.splitlines() if l.startswith(">")]
+    selected_lines = [line for line in text.splitlines() if line.startswith(">")]
     assert len(selected_lines) == 1
 
 

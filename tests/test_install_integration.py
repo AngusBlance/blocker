@@ -119,11 +119,17 @@ def test_block_install_is_idempotent(editable_venv, tmp_path):
     try:
         first = subprocess.run(
             [str(editable_venv / "bin" / "block"), "install"],
-            capture_output=True, text=True, env=env, timeout=30,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
         )
         second = subprocess.run(
             [str(editable_venv / "bin" / "block"), "install"],
-            capture_output=True, text=True, env=env, timeout=30,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
         )
         assert first.returncode == 0, first.stderr
         assert second.returncode == 0, second.stderr

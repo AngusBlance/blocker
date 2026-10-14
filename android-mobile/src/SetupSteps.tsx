@@ -21,10 +21,10 @@ export function SetupSteps({ blocker }: { blocker: Blocker }) {
     <>
       <Pane title="Before you start">
         <Muted>
-          Blocker needs one permission: Android's Accessibility service. It reads the web address
-          in your browser and which app is open, and checks them against your block list on this
-          phone only. Nothing is sent anywhere. It doesn't read passwords, messages or what's
-          inside other apps.
+          Blocker needs one permission: Android's Accessibility service. It reads the web address in
+          your browser and which app is open, and checks them against your block list on this phone
+          only. Nothing is sent anywhere. It doesn't read passwords, messages or what's inside other
+          apps.
         </Muted>
         <Muted>
           Android doesn't let apps ask for it with a popup, so the buttons below take you to each
@@ -37,9 +37,9 @@ export function SetupSteps({ blocker }: { blocker: Blocker }) {
           <Pane title={`${++n}. Tap the greyed-out Blocker`} focused>
             <Path>Accessibility › Blocker › OK</Path>
             <Muted>
-              Android locks Blocker because it wasn't installed from the Play Store. Tap it once
-              and tap OK on the "denied access" or "Restricted setting" message. That makes the
-              unlock option in the next step show up.
+              Android locks Blocker because it wasn't installed from the Play Store. Tap it once and
+              tap OK on the "denied access" or "Restricted setting" message. That makes the unlock
+              option in the next step show up.
             </Muted>
             <Muted>
               not greyed out? skip to step {n + 2}. Blocker may be under "Downloaded apps" or

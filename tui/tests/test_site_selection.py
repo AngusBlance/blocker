@@ -1,4 +1,4 @@
-from blocker_tui.app import Content, BlockerApp, Sidebar, site_groups
+from blocker_tui.app import BlockerApp, Content, Sidebar, site_groups
 
 
 async def test_jk_moves_sidebar_when_sidebar_focused():

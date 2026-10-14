@@ -5,12 +5,16 @@ from blocker_tui.app import BlockerApp, sudo_needs_password
 
 
 def test_sudo_needs_password_false_when_cached(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda args, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(
+        subprocess, "run", lambda args, **kwargs: SimpleNamespace(returncode=0)
+    )
     assert sudo_needs_password() is False
 
 
 def test_sudo_needs_password_true_when_not_cached(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda args, **kwargs: SimpleNamespace(returncode=1))
+    monkeypatch.setattr(
+        subprocess, "run", lambda args, **kwargs: SimpleNamespace(returncode=1)
+    )
     assert sudo_needs_password() is True
 
 

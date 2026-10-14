@@ -13,8 +13,12 @@ EXTENSION_DIR = REPO_ROOT / "extension"
 APP_BUNDLE = Path.home() / "Applications" / "Block.app"
 # overridable so integration tests can bootstrap a disposable, self-cleaning
 # agent instead of touching the real com.angusblance.blocker-sync
-LAUNCH_AGENT_LABEL = os.environ.get("BLOCKER_LAUNCH_AGENT_LABEL", "com.angusblance.blocker-sync")
-LAUNCH_AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
+LAUNCH_AGENT_LABEL = os.environ.get(
+    "BLOCKER_LAUNCH_AGENT_LABEL", "com.angusblance.blocker-sync"
+)
+LAUNCH_AGENT_PLIST = (
+    Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
+)
 LOGS_DIR = Path.home() / "Library" / "Logs"
 
 LSREGISTER = (
@@ -124,11 +128,15 @@ def install_sync_daemon() -> None:
 def print_extension_instructions() -> None:
     print("\nChrome extension (one-time, manual step - Chrome requires this,")
     print("it won't let anything load an unpacked extension silently):")
-    print("  1. In the chrome://extensions tab that just opened, enable 'Developer mode'")
+    print(
+        "  1. In the chrome://extensions tab that just opened, enable 'Developer mode'"
+    )
     print("  2. Click 'Load unpacked' and select:")
     print(f"     {EXTENSION_DIR}")
     if not os.environ.get("BLOCKER_NO_OPEN_CHROME"):
-        subprocess.run(["open", "-a", "Google Chrome", "chrome://extensions"], check=False)
+        subprocess.run(
+            ["open", "-a", "Google Chrome", "chrome://extensions"], check=False
+        )
 
 
 def install() -> None:

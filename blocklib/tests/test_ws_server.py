@@ -97,7 +97,9 @@ def test_notify_external_daemon_triggers_a_prompt_broadcast(running_ws_server):
         async with websockets.connect(uri) as ws:
             await ws.recv()  # consume the initial state push
             threading.Thread(
-                target=notify_external_daemon, args=(running_ws_server.port,), daemon=True
+                target=notify_external_daemon,
+                args=(running_ws_server.port,),
+                daemon=True,
             ).start()
             start = time.monotonic()
             message = await asyncio.wait_for(ws.recv(), timeout=2)

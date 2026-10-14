@@ -11,8 +11,8 @@ export function SettingsScreen({ blocker }: { blocker: Blocker }) {
         <Pane title="All set" focused>
           <Field label="service" value="running" color={colors.success} />
           <Muted>
-            to check: block a site, then open it in your browser or open its app. you should get
-            the block screen.
+            to check: block a site, then open it in your browser or open its app. you should get the
+            block screen.
           </Muted>
           <Button title="open accessibility" onPress={blocker.openAccessibilitySettings} />
         </Pane>

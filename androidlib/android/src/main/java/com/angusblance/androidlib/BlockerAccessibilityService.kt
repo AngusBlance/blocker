@@ -23,8 +23,11 @@ class BlockerAccessibilityService : AccessibilityService() {
 
   override fun onAccessibilityEvent(event: AccessibilityEvent) {
     val packageName = event.packageName?.toString() ?: return
-    if (packageName in store.blockedApps) checkApp(packageName)
-    else checkBrowser(packageName)
+    if (packageName in store.blockedApps) {
+      checkApp(packageName)
+    } else {
+      checkBrowser(packageName)
+    }
   }
 
   private fun checkApp(packageName: String) {
@@ -63,7 +66,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     startActivity(
       Intent(this, BlockedActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        .putExtra(BlockedActivity.EXTRA_HOST, label)
+        .putExtra(BlockedActivity.EXTRA_HOST, label),
     )
   }
 

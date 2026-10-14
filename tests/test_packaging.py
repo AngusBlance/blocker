@@ -39,7 +39,9 @@ def built_wheels(tmp_path_factory):
     }
 
 
-def test_blocklib_wheel_has_the_real_package_and_no_stray_top_level_modules(built_wheels):
+def test_blocklib_wheel_has_the_real_package_and_no_stray_top_level_modules(
+    built_wheels,
+):
     with zipfile.ZipFile(built_wheels["blocklib"]) as z:
         names = z.namelist()
 

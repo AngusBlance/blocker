@@ -31,7 +31,9 @@ async def test_pressing_b_on_sites_content_triggers_block(monkeypatch):
 async def test_pressing_b_notifies_extension_sync_server(monkeypatch):
     monkeypatch.setattr("blocker_tui.app.perform_block", lambda: None)
     notify_calls = []
-    monkeypatch.setattr("blocker_tui.app.BlockerApp._notify_sync", lambda self: notify_calls.append(1))
+    monkeypatch.setattr(
+        "blocker_tui.app.BlockerApp._notify_sync", lambda self: notify_calls.append(1)
+    )
 
     app = BlockerApp()
     async with app.run_test() as pilot:

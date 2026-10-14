@@ -62,7 +62,12 @@ export function UnlockScreen({
         <Mono style={wrong ? styles.wrong : styles.count}>
           {wrong ? "that doesn't match." : `${typed.length} / ${password.length}`}
         </Mono>
-        <Button primary title="unlock" disabled={typed.length !== password.length} onPress={submit} />
+        <Button
+          primary
+          title="unlock"
+          disabled={typed.length !== password.length}
+          onPress={submit}
+        />
       </Pane>
       {site && <Button title="keep it blocked" onPress={done} />}
     </>
