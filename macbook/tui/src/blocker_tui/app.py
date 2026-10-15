@@ -365,7 +365,11 @@ def main() -> None:
         if sys.argv[1] == "uninstall-scheduler":
             from blocker_tui.installer import uninstall_scheduler
 
-            uninstall_scheduler()
+            try:
+                uninstall_scheduler()
+            except (OSError, subprocess.CalledProcessError) as e:
+                print(f"Couldn't remove the schedule helper: {e}")
+                sys.exit(1)
             print("Schedule helper removed")
             return
         print(USAGE)

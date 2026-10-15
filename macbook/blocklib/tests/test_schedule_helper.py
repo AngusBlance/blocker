@@ -377,3 +377,19 @@ def test_clear_removes_the_section(tmp_path):
     apply(schedules_path, hosts_path)
     helper.apply_names([], hosts_path, tmp_path / "hosts.lock", flush=lambda: None)
     assert hosts_path.read_text() == BASE + MANUAL
+
+
+def test_a_held_lock_times_out_instead_of_hanging(tmp_path):
+    import fcntl
+
+    lock = tmp_path / "hosts.lock"
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        with pytest.raises(TimeoutError):
+            with helper.locked(lock, wait=0.2):
+                pass
+    finally:
+        os.close(fd)
+    with helper.locked(lock, wait=0.2):
+        assert lock.stat().st_mode & 0o777 == 0o600

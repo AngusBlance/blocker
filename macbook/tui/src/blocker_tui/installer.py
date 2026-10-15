@@ -166,6 +166,8 @@ def resolve_scheduler_python(candidate: Path = CLT_PYTHON) -> str:
         raise RuntimeError(
             "schedules need Apple's Command Line Tools: run `xcode-select --install`"
         )
+    # Checked through to the real file, but the plist keeps the stable path,
+    # so a Command Line Tools update to a newer python still runs.
     python = Path(os.path.realpath(candidate))
     result = subprocess.run(
         [str(python), "-I", "-c", "import sys, zoneinfo; print(sys.prefix)"],
@@ -175,10 +177,10 @@ def resolve_scheduler_python(candidate: Path = CLT_PYTHON) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"{python} can't run the schedule helper")
     stdlib = Path(result.stdout.strip()) / "lib"
-    for p in (python, stdlib):
+    for p in (candidate, python, stdlib):
         if not _root_only(p):
             raise RuntimeError(f"{p} isn't root-only; not running it as root")
-    return str(python)
+    return str(candidate)
 
 
 def allowlist_text() -> str:
@@ -204,7 +206,9 @@ def _scheduler_plist(python: str) -> bytes:
             # saved change is picked up through the folder within launchd's
             # 10s throttle (saves replace the file).
             "StartInterval": 30,
-            "WatchPaths": [str(SCHEDULES_FILE.parent)],
+            # Also /etc/hosts: if a manual block's write lands on top of a
+            # change of ours, the scheduled section goes back straight away.
+            "WatchPaths": [str(SCHEDULES_FILE.parent), "/private/etc/hosts"],
             "StandardOutPath": str(SCHEDULER_LOG),
             "StandardErrorPath": str(SCHEDULER_LOG),
         }
@@ -279,17 +283,21 @@ def install_scheduler() -> None:
 
 
 def uninstall_scheduler() -> None:
-    """Removes scheduled blocks from /etc/hosts, then the helper itself."""
-    if (SCHEDULER_DIR / "schedule_helper.py").exists():
-        python = resolve_scheduler_python()
-        _sudo(
-            python,
-            "-I",
-            str(SCHEDULER_DIR / "schedule_helper.py"),
-            "--clear",
-            check=False,
-        )
+    """Stops the helper, removes its blocks from /etc/hosts, then removes
+    the helper. Stopped first, so it can't put the blocks back."""
     _sudo("launchctl", "bootout", f"system/{SCHEDULER_LABEL}", check=False)
+    helper = SCHEDULER_DIR / "schedule_helper.py"
+    if helper.exists():
+        try:
+            python = resolve_scheduler_python()
+        except RuntimeError as e:
+            print(f"Couldn't clear scheduled blocks from /etc/hosts ({e});")
+            print("remove its BLOCKER-SCHEDULE section by hand.")
+        else:
+            result = _sudo(python, "-I", str(helper), "--clear", check=False)
+            if result.returncode != 0:
+                why = (result.stderr or b"").decode(errors="replace").strip()
+                print(f"Couldn't clear scheduled blocks from /etc/hosts: {why}")
     _sudo("rm", "-rf", str(SCHEDULER_DIR), str(SCHEDULER_PLIST), str(NEWSYSLOG_CONF))
 
 
@@ -317,7 +325,7 @@ def install() -> None:
         print("ask for your Mac password (once):")
         try:
             install_scheduler()
-        except RuntimeError as e:
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
             print(f"Schedule helper NOT installed: {e}")
         else:
             print(f"Schedule helper installed and running ({SCHEDULER_LABEL})")

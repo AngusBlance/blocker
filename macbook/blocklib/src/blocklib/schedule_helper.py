@@ -29,6 +29,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Set
 
@@ -164,13 +165,29 @@ def read_schedules(path: Path) -> Optional[str]:
             os.close(fd)
 
 
+LOCK_WAIT_SECONDS = 20
+
+
 @contextlib.contextmanager
-def locked(lock_path: Path) -> Iterator[None]:
+def locked(lock_path: Path, wait: float = LOCK_WAIT_SECONDS) -> Iterator[None]:
+    """Holds the hosts lock. Gives up after `wait` seconds rather than
+    hanging (launchd won't start the next run while this one is stuck)."""
     fd = os.open(
-        lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644
+        lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
     )
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        # Only its owner may open it, so no one else can sit on the lock.
+        if os.fstat(fd).st_uid == os.geteuid():
+            os.fchmod(fd, 0o600)
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"{lock_path} is held by someone else")
+                time.sleep(0.1)
         yield
     finally:
         os.close(fd)

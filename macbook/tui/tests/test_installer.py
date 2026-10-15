@@ -134,7 +134,7 @@ def test_install_scheduler_installs_root_owned_copies_and_a_launch_daemon(
         str(d / "schedule_helper.py"),
         str(schedules),
     ]
-    assert plist["WatchPaths"] == [str(schedules.parent)]
+    assert plist["WatchPaths"] == [str(schedules.parent), "/private/etc/hosts"]
     assert plist["StartInterval"] == 30
     assert plist["RunAtLoad"] is True
     assert plist["StandardErrorPath"] == str(installer.SCHEDULER_LOG)
@@ -182,9 +182,8 @@ def test_the_interpreter_must_be_root_only(tmp_path):
     not installer.CLT_PYTHON.exists(), reason="needs the Command Line Tools"
 )
 def test_the_command_line_tools_python_is_accepted():
-    python = installer.resolve_scheduler_python()
-    assert python.startswith("/Library/Developer/CommandLineTools/")
-    assert not os.path.islink(python)
+    # The stable path, not the versioned file it points at.
+    assert installer.resolve_scheduler_python() == str(installer.CLT_PYTHON)
 
 
 def test_uninstall_clears_the_section_then_removes_everything(tmp_path, monkeypatch):
@@ -194,12 +193,30 @@ def test_uninstall_clears_the_section_then_removes_everything(tmp_path, monkeypa
     (helper_dir / "schedule_helper.py").write_text("")
     monkeypatch.setattr(installer, "SCHEDULER_DIR", helper_dir)
     installer.uninstall_scheduler()
-    assert calls[0][1:] == [
+    assert calls[0][1:3] == ["launchctl", "bootout"]  # stopped first
+    assert calls[1][1:] == [
         PYTHON,
         "-I",
         str(helper_dir / "schedule_helper.py"),
         "--clear",
     ]
-    assert calls[1][1:3] == ["launchctl", "bootout"]
     assert calls[2][1:3] == ["rm", "-rf"]
     assert str(installer.SCHEDULER_PLIST) in calls[2]
+
+
+def test_uninstall_still_removes_the_helper_without_its_python(
+    tmp_path, monkeypatch, capsys
+):
+    calls, _ = _fake_sudo(monkeypatch)
+
+    def no_python():
+        raise RuntimeError("no Command Line Tools")
+
+    monkeypatch.setattr(installer, "resolve_scheduler_python", no_python)
+    helper_dir = tmp_path / "Blocker"
+    helper_dir.mkdir()
+    (helper_dir / "schedule_helper.py").write_text("")
+    monkeypatch.setattr(installer, "SCHEDULER_DIR", helper_dir)
+    installer.uninstall_scheduler()
+    assert [c[1] for c in calls] == ["launchctl", "rm"]
+    assert "by hand" in capsys.readouterr().out
