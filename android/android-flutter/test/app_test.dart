@@ -78,13 +78,12 @@ void main() {
   });
 
   testWidgets(
-    'dashboard leads with the three setup steps when the service is off',
+    'dashboard leads with the setup steps, unlocking first, when the service is off',
     (tester) async {
       final b = await pump(tester, backend: FakeBackend(serviceOn: false));
       expect(find.text('NOT BLOCKING YET'), findsOneWidget);
-      expect(find.text('1. TAP THE GREYED-OUT BLOCKER'), findsOneWidget);
-      expect(find.text('2. ALLOW RESTRICTED SETTINGS'), findsOneWidget);
-      expect(find.text('3. TURN ON BLOCKER'), findsOneWidget);
+      expect(find.text('1. ALLOW RESTRICTED SETTINGS'), findsOneWidget);
+      expect(find.text('2. TURN ON BLOCKER'), findsOneWidget);
       await tester.ensureVisible(find.text('open app info').first);
       await tester.tap(find.text('open app info').first);
       expect(b.appInfoOpened, 1);

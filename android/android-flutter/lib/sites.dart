@@ -17,4 +17,11 @@ const sites = [
   ),
   Site('Netflix', ['netflix.com'], ['com.netflix.mediaclient']),
   Site('Crunchyroll', ['crunchyroll.com'], ['com.crunchyroll.crunchyroid']),
+  Site('Instagram', ['instagram.com'], ['com.instagram.android']),
+  Site('TikTok', ['tiktok.com'], ['com.zhiliaoapp.musically']),
+  Site(
+    'Facebook',
+    ['facebook.com'],
+    ['com.facebook.katana', 'com.facebook.lite'],
+  ),
 ];

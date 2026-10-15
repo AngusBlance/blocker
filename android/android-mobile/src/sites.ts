@@ -11,6 +11,13 @@ export const SITES: Site[] = [
   },
   { name: 'Netflix', domains: ['netflix.com'], apps: ['com.netflix.mediaclient'] },
   { name: 'Crunchyroll', domains: ['crunchyroll.com'], apps: ['com.crunchyroll.crunchyroid'] },
+  { name: 'Instagram', domains: ['instagram.com'], apps: ['com.instagram.android'] },
+  { name: 'TikTok', domains: ['tiktok.com'], apps: ['com.zhiliaoapp.musically'] },
+  {
+    name: 'Facebook',
+    domains: ['facebook.com'],
+    apps: ['com.facebook.katana', 'com.facebook.lite'],
+  },
 ];
 
 export type Blocked = { domains: string[]; apps: string[] };

@@ -6,8 +6,8 @@ import '../ui.dart';
 /// The steps to do in Android's settings, each with a button that goes
 /// there. Shown on the dashboard and the settings tab while the service is
 /// off. Android 13+ locks accessibility for apps installed outside the Play
-/// Store, and its "Allow restricted settings" option only appears after the
-/// locked Blocker has been tapped once, hence steps 1 and 2. Google Play
+/// Store, so step 1 unlocks it in App info before step 2 turns Blocker on.
+/// Google Play
 /// requires the disclosure, with an explicit agree step, before sending the
 /// user to enable an accessibility service.
 class SetupSteps extends StatelessWidget {
@@ -39,39 +39,28 @@ class SetupSteps extends StatelessWidget {
         if (restricted) ...[
           const SizedBox(height: 12),
           Pane(
-            title: '${++n}. Tap the greyed-out Blocker',
-            focused: true,
-            children: [
-              const PathBox('Accessibility › Blocker › OK'),
-              const Muted(
-                "Android locks Blocker because it wasn't installed from the Play Store. Tap it "
-                'once and tap OK on the "denied access" or "Restricted setting" message. That '
-                'makes the unlock option in the next step show up.',
-              ),
-              Muted(
-                'not greyed out? skip to step ${n + 2}. Blocker may be under "Downloaded apps" '
-                'or "Installed apps".',
-              ),
-              AppButton(
-                'agree and open accessibility',
-                primary: true,
-                onPressed: blocker.backend.openAccessibilitySettings,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Pane(
             title: '${++n}. Allow restricted settings',
             focused: true,
             children: [
               const PathBox('App info › ⋮ › Allow restricted settings'),
+              Muted(
+                "Android locks Blocker because it wasn't installed from the Play Store, and step "
+                '${n + 1} stays greyed out until this is done. ⋮ is in the top right corner; '
+                'confirm with your PIN or fingerprint.',
+              ),
               const Muted(
-                '⋮ is in the top right corner. Confirm with your PIN or fingerprint.',
+                'no "Allow restricted settings" in the ⋮ menu? some phones only show it after one '
+                'try: open accessibility, tap Blocker, tap OK on the "Restricted setting" message, '
+                'then come back here.',
               ),
               AppButton(
                 'open app info',
                 primary: true,
                 onPressed: blocker.backend.openAppInfo,
+              ),
+              AppButton(
+                'open accessibility',
+                onPressed: blocker.backend.openAccessibilitySettings,
               ),
             ],
           ),
@@ -83,12 +72,11 @@ class SetupSteps extends StatelessWidget {
           children: [
             const PathBox('Accessibility › Blocker › Use Blocker › Allow'),
             const Muted(
-              'then come back here. this page changes to "All set" once it\'s on.',
+              'Blocker may be under "Downloaded apps" or "Installed apps". then come back here; '
+              'this page changes to "All set" once it\'s on.',
             ),
             AppButton(
-              restricted
-                  ? 'open accessibility'
-                  : 'agree and open accessibility',
+              'agree and open accessibility',
               primary: true,
               onPressed: blocker.backend.openAccessibilitySettings,
             ),

@@ -44,7 +44,14 @@ def test_site_groups_groups_domains_by_service_name(tmp_path):
     hosts = tmp_path / "hosts"
     hosts.write_text(BASE)
     groups = dict(site_groups(hosts))
-    assert set(groups.keys()) == {"Netflix", "YouTube", "Crunchyroll"}
+    assert set(groups.keys()) == {
+        "Netflix",
+        "YouTube",
+        "Crunchyroll",
+        "Instagram",
+        "TikTok",
+        "Facebook",
+    }
     assert {d.url for d in groups["Netflix"]} == {"netflix.com", "www.netflix.com"}
     assert {d.url for d in groups["Crunchyroll"]} == {
         "crunchyroll.com",

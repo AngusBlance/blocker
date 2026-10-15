@@ -5,9 +5,9 @@ import { Button, Mono, Muted, Pane } from './ui';
 import type { Blocker } from './useBlocker';
 
 // Android 13+ locks accessibility for apps installed outside the Play Store
-// ("restricted settings"), so it has to be unlocked before Blocker can be
-// turned on. Its "Allow restricted settings" option only appears after the
-// user has tapped the locked Blocker once, hence steps 1 and 2.
+// ("restricted settings"), so it has to be unlocked in App info before
+// Blocker can be turned on. On some phones that option only appears after
+// one attempt to turn Blocker on, which step 1 explains.
 const HAS_RESTRICTED_SETTINGS = Platform.OS === 'android' && Platform.Version >= 33;
 
 // The steps to do in Android's settings, each with a button that goes there.
@@ -33,39 +33,32 @@ export function SetupSteps({ blocker }: { blocker: Blocker }) {
       </Pane>
 
       {HAS_RESTRICTED_SETTINGS && (
-        <>
-          <Pane title={`${++n}. Tap the greyed-out Blocker`} focused>
-            <Path>Accessibility › Blocker › OK</Path>
-            <Muted>
-              Android locks Blocker because it wasn't installed from the Play Store. Tap it once and
-              tap OK on the "denied access" or "Restricted setting" message. That makes the unlock
-              option in the next step show up.
-            </Muted>
-            <Muted>
-              not greyed out? skip to step {n + 2}. Blocker may be under "Downloaded apps" or
-              "Installed apps".
-            </Muted>
-            <Button
-              primary
-              title="agree and open accessibility"
-              onPress={blocker.openAccessibilitySettings}
-            />
-          </Pane>
-
-          <Pane title={`${++n}. Allow restricted settings`} focused>
-            <Path>App info › ⋮ › Allow restricted settings</Path>
-            <Muted>⋮ is in the top right corner. Confirm with your PIN or fingerprint.</Muted>
-            <Button primary title="open app info" onPress={blocker.openAppInfo} />
-          </Pane>
-        </>
+        <Pane title={`${++n}. Allow restricted settings`} focused>
+          <Path>App info › ⋮ › Allow restricted settings</Path>
+          <Muted>
+            Android locks Blocker because it wasn't installed from the Play Store, and step {n + 1}
+            stays greyed out until this is done. ⋮ is in the top right corner; confirm with your PIN
+            or fingerprint.
+          </Muted>
+          <Muted>
+            no "Allow restricted settings" in the ⋮ menu? some phones only show it after one try:
+            open accessibility, tap Blocker, tap OK on the "Restricted setting" message, then come
+            back here.
+          </Muted>
+          <Button primary title="open app info" onPress={blocker.openAppInfo} />
+          <Button title="open accessibility" onPress={blocker.openAccessibilitySettings} />
+        </Pane>
       )}
 
       <Pane title={`${++n}. Turn on Blocker`} focused>
         <Path>Accessibility › Blocker › Use Blocker › Allow</Path>
-        <Muted>then come back here. this page changes to "All set" once it's on.</Muted>
+        <Muted>
+          Blocker may be under "Downloaded apps" or "Installed apps". then come back here; this page
+          changes to "All set" once it's on.
+        </Muted>
         <Button
           primary
-          title={HAS_RESTRICTED_SETTINGS ? 'open accessibility' : 'agree and open accessibility'}
+          title="agree and open accessibility"
           onPress={blocker.openAccessibilitySettings}
         />
       </Pane>
