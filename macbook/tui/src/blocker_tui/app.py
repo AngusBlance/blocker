@@ -268,6 +268,10 @@ class BlockerApp(App):
         margin-top: 1;
         color: $error;
     }
+    #editor-keys {
+        margin-top: 1;
+        color: $text-muted;
+    }
     #dialog {
         width: 64;
         height: auto;

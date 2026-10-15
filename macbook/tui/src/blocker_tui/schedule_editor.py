@@ -1,7 +1,7 @@
 """The schedule editor: pick the days, the from–to times and the sites a
 schedule blocks. The same fields and checks as the Android editor
-(schedule_editor.dart); tab moves between fields, space ticks a box, enter
-presses a button, ctrl+s saves, esc cancels."""
+(schedule_editor.dart); tab (or enter in a text box) moves between fields,
+space ticks a box, enter presses a button, ctrl+s saves, esc cancels."""
 
 import re
 from dataclasses import replace
@@ -163,6 +163,11 @@ class ScheduleEditor(ModalScreen):
             with Horizontal(classes="row"):
                 yield Button("save", variant="primary", id="save", compact=True)
                 yield Button("cancel", id="cancel", compact=True)
+            yield Static(
+                "tab / shift+tab move · space ticks · enter presses"
+                " · ctrl+s saves · esc cancels",
+                id="editor-keys",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#schedule-name", Input).focus()
@@ -226,7 +231,8 @@ class ScheduleEditor(ModalScreen):
         self._update()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.action_save()
+        # Enter in a text box moves on, like tab; ctrl+s saves.
+        self.focus_next()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button = event.button.id or ""

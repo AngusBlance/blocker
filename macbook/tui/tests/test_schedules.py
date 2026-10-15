@@ -588,3 +588,25 @@ async def test_the_tick_tells_the_extension_when_hosts_changes(
         os.utime(hosts, ns=(0, 1))
         app._tick()
         assert server.notified == 1
+
+
+async def test_tab_and_enter_move_from_the_name_to_the_days(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("enter")  # edit Work; the name box has focus
+        editor = app.screen
+        assert editor.focused.id == "schedule-name"
+        await pilot.press("enter")  # moves on, doesn't save
+        assert isinstance(app.screen, ScheduleEditor)
+        assert editor.focused.id == "day-1"
+        await pilot.press("tab", "tab", "tab", "tab", "tab")
+        assert editor.focused.id == "day-6"
+        await pilot.press("space")  # tick Saturday
+        assert 6 in editor._days()
+        await pilot.press("shift+tab")
+        assert editor.focused.id == "day-5"
+        await pilot.press("ctrl+s")  # Work is running: a new plan needs the password
+        assert isinstance(app.screen, UnlockModal)
+        await type_password(app, pilot)
+        assert saved(stored)["work"].plan.days == frozenset({1, 2, 3, 4, 5, 6})
