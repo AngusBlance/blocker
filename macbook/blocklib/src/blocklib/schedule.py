@@ -91,7 +91,7 @@ class EveryPlan:
         else:  # overnight, evening part
             end_day, end_minute = today + timedelta(days=1), self.end
         end = _local(end_day, end_minute, now)
-        if end <= now:  # autumn overlap: take the later of the repeated times
+        if _ms(end) <= _ms(now):  # autumn overlap: the later repeat
             end = _local(end_day, end_minute, now, fold=1)
         return end
 
@@ -130,6 +130,7 @@ class Schedule:
     paused_until: Optional[int] = None  # epoch ms
 
     def is_active(self, now: datetime) -> bool:
+        now = _aware(now)
         if not self.enabled:
             return False
         if self.paused_until is not None and _ms(now) < self.paused_until:
@@ -140,6 +141,7 @@ class Schedule:
 
     def active_until(self, now: datetime) -> Optional[int]:
         """When the occurrence running now ends (epoch ms), or None."""
+        now = _aware(now)
         if not self.is_active(now):
             return None
         if isinstance(self.plan, ForPlan):
@@ -154,11 +156,12 @@ class Schedule:
 
     def next_start(self, now: datetime) -> Optional[datetime]:
         """When this next starts after `now` (and isn't paused then)."""
+        now = _aware(now)
         if not self.enabled:
             return None
 
         def usable(t: datetime) -> bool:
-            return t > now and (
+            return _ms(t) > _ms(now) and (
                 self.paused_until is None or _ms(t) >= self.paused_until
             )
 
@@ -167,7 +170,7 @@ class Schedule:
         resumes = None
         if self.paused_until is not None:
             t = datetime.fromtimestamp(self.paused_until / 1000, now.tzinfo)
-            if t > now and replace(self, paused_until=None).is_active(t):
+            if _ms(t) > _ms(now) and replace(self, paused_until=None).is_active(t):
                 resumes = t
         scheduled = None
         if isinstance(self.plan, ForPlan):
@@ -182,7 +185,7 @@ class Schedule:
                         scheduled = start
                         break
         found = [t for t in (resumes, scheduled) if t is not None]
-        return min(found) if found else None
+        return min(found, key=_ms) if found else None
 
     def to_json(self) -> dict:
         data = {
@@ -213,7 +216,7 @@ class Schedule:
             plan=_plan_from(_get(data, "plan", dict)),
             action=_action_from(_get(data, "action", dict)),
             enabled=_get(data, "enabled", bool) if "enabled" in data else True,
-            paused_until=_get(data, "pausedUntil", int)
+            paused_until=_get_ms(data, "pausedUntil")
             if "pausedUntil" in data
             else None,
         )
@@ -319,6 +322,33 @@ def pause(
     return NOT_RUNNING, None
 
 
+def pause_json(
+    stored_text: Optional[str], schedule_id: str, password_ok: bool, now: datetime
+) -> Tuple[str, Optional[str]]:
+    """pause() on the stored JSON text, rewriting only that schedule's entry,
+    so entries this version can't read survive (like ScheduleRules.pause)."""
+    if not password_ok:
+        return WRONG_PASSWORD, None
+    try:
+        items = json.loads(stored_text or "[]")
+    except json.JSONDecodeError:
+        return NOT_RUNNING, None
+    if not isinstance(items, list):
+        return NOT_RUNNING, None
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("id") != schedule_id:
+            continue
+        try:
+            paused = Schedule.from_json(item).paused_for_current_occurrence(now)
+        except ScheduleError:
+            continue
+        if paused is None:
+            return NOT_RUNNING, None
+        items[i] = paused.to_json()
+        return PAUSED, json.dumps(items)
+    return NOT_RUNNING, None
+
+
 def active_domains(schedules: List[Schedule], now: datetime) -> Set[str]:
     """Every domain a running schedule blocks right now."""
     return {d for s in schedules if s.is_active(now) for d in s.domains}
@@ -335,10 +365,14 @@ def next_up(
         for t in [s.next_start(now)]
         if t is not None
     ]
-    return min(candidates, key=lambda c: c[1]) if candidates else None
+    return min(candidates, key=lambda c: _ms(c[1])) if candidates else None
 
 
 # Helpers
+
+
+def _aware(now: datetime) -> datetime:
+    return now if now.tzinfo is not None else now.replace(tzinfo=_system_zone())
 
 
 def _ms(t: datetime) -> int:
@@ -352,15 +386,23 @@ def local_now() -> datetime:
 
 
 def _system_zone() -> tzinfo:
+    """$TZ if set, else the zone /etc/localtime points at. Only if neither
+    works, the current fixed offset (which knows nothing of DST)."""
     try:
         from zoneinfo import ZoneInfo  # Python 3.9+
-
-        # /etc/localtime -> /var/db/timezone/zoneinfo/Europe/London
-        link = os.path.realpath("/etc/localtime")
-        if "zoneinfo/" in link:
-            return ZoneInfo(link.split("zoneinfo/", 1)[1])
-    except Exception:
-        pass
+    except ImportError:  # pragma: no cover - 3.9+ always has it
+        ZoneInfo = None
+    names = [os.environ.get("TZ", "").lstrip(":")]
+    # /etc/localtime -> /var/db/timezone/zoneinfo/Europe/London
+    link = os.path.realpath("/etc/localtime")
+    if "zoneinfo/" in link:
+        names.append(link.split("zoneinfo/", 1)[1])
+    for name in names:
+        if name and ZoneInfo is not None:
+            try:
+                return ZoneInfo(name)
+            except Exception:
+                continue
     return datetime.now().astimezone().tzinfo or timezone.utc
 
 
@@ -369,6 +411,7 @@ def _local(day: date, minute: int, like: datetime, fold: int = 0) -> datetime:
     by a spring-forward gap is when the clocks jump (covers() is true from
     then), matching androidlib's Schedule.startOf."""
     tz = like.tzinfo or _system_zone()
+    # Transitions fall on whole minutes (true of every zone in tzdb today).
     wall = datetime.combine(day, time(minute // 60, minute % 60, fold=fold))
     t = wall.replace(tzinfo=tz)
     if t.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None) == wall:
@@ -398,6 +441,17 @@ def _get(data: dict, key: str, kind: type) -> Any:
     return value
 
 
+# 0001-01-01 to 9999-12-31: what datetime can represent.
+_MS_RANGE = range(-62135596800000, 253402300800000)
+
+
+def _get_ms(data: dict, key: str) -> int:
+    value = _get(data, key, int)
+    if value not in _MS_RANGE:
+        raise ScheduleError(f"{key} is out of range: {value}")
+    return value
+
+
 def _strings(data: dict, key: str) -> Tuple[str, ...]:
     values = _get(data, key, list)
     if not all(isinstance(v, str) for v in values):
@@ -419,7 +473,7 @@ def _plan_json(plan: Plan) -> Dict[str, object]:
 def _plan_from(data: dict) -> Plan:
     kind = _get(data, "type", str)
     if kind == "for":
-        return ForPlan(_get(data, "startsAt", int), _get(data, "endsAt", int))
+        return ForPlan(_get_ms(data, "startsAt"), _get_ms(data, "endsAt"))
     if kind == "every":
         days = _get(data, "days", list)
         if not all(isinstance(d, int) and not isinstance(d, bool) for d in days):

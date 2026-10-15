@@ -268,3 +268,146 @@ def test_pausing_needs_the_password_and_a_running_schedule():
 
 def test_local_now_has_a_zone():
     assert sch.local_now().tzinfo is not None
+
+
+# Review follow-ups: DST instants, ranges, raw pauses, and more parity cases
+
+
+def utc(text: str) -> datetime:
+    return datetime.fromisoformat(text + "+00:00").astimezone(LONDON)
+
+
+def test_occurrence_end_in_the_autumn_overlap_is_never_in_the_past():
+    sunday = every("sun", {7}, 0, 90)
+    second = utc("2026-10-25T01:15")  # the second 01:15, GMT
+    assert sunday.active_until(second) == ms("2026-10-25T01:30") + 3_600_000
+    assert sunday.active_until(utc("2026-10-25T00:15")) == int(
+        utc("2026-10-25T00:30").timestamp() * 1000
+    )
+    # Ending it early really ends it.
+    paused = sunday.paused_for_current_occurrence(second)
+    assert not paused.is_active(second)
+
+
+def test_occurrence_end_across_and_inside_a_spring_forward():
+    sunday = every("sun", {7}, 0, 240)
+    end = sunday.active_until(utc("2027-03-28T00:30"))
+    assert end == int(utc("2027-03-28T03:00").timestamp() * 1000)  # 04:00 BST
+    skipped = every("skipped", {7}, 0, 90)  # 01:30 never happens
+    end = skipped.active_until(utc("2027-03-28T00:30"))
+    assert end == int(utc("2027-03-28T01:00").timestamp() * 1000)
+
+
+def test_next_start_in_the_second_pass_of_the_overlap_is_not_in_the_past():
+    sunday = every("sun", {7}, 90, 120)  # 01:30 BST already passed
+    now = utc("2026-10-25T01:10")  # 01:10 GMT, second pass
+    start = sunday.next_start(now)
+    assert start.timestamp() > now.timestamp()
+
+
+def test_naive_now_is_read_as_system_local_time():
+    assert WORK.next_start(datetime(2026, 10, 12, 8)) is not None
+    assert WORK.is_active(datetime(2026, 10, 12, 10))
+
+
+def test_overnight_sunday_into_monday():
+    sunday_night = every("sun-night", {7}, 22 * 60, 6 * 60)
+    assert sunday_night.is_active(at("2026-10-12T05:00"))  # Monday morning
+    assert not sunday_night.is_active(at("2026-10-13T05:00"))
+
+
+def test_next_start_for_one_offs_all_day_and_pauses():
+    focus = replace(WORK, plan=ForPlan(ms("2026-10-12T15:00"), ms("2026-10-12T16:00")))
+    assert focus.next_start(at("2026-10-12T10:00")) == at("2026-10-12T15:00")
+    assert focus.next_start(at("2026-10-12T15:30")) is None
+    ended = focus.paused_for_current_occurrence(at("2026-10-12T15:30"))
+    assert ended.next_start(at("2026-10-12T15:30")) is None
+    sat = every("sat", {6}, 0, 0)
+    assert sat.next_start(at("2026-10-12T10:00")) == at("2026-10-17T00:00")
+    paused = replace(WORK, paused_until=ms("2026-10-16T17:00"))
+    assert paused.next_start(at("2026-10-12T10:00")) == at("2026-10-19T09:00")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"plan": {"type": "every", "days": [1], "start": 540.0, "end": 1020}},
+        {"plan": {"type": "every", "days": [8], "start": 540, "end": 1020}},
+        {"plan": {"type": "every", "days": [], "start": 540, "end": 1020}},
+        {"plan": {"type": "for", "startsAt": 10**16, "endsAt": 10**16 + 1}},
+        {"pausedUntil": 10**16},
+        {"pausedUntil": True},
+        {"pausedUntil": 1.5},
+    ],
+)
+def test_more_malformed_values_are_rejected(change):
+    test_malformed_values_are_rejected(change)
+
+
+@pytest.mark.parametrize("key", ["plan", "action", "domains"])
+def test_missing_keys_are_rejected(key):
+    item = json.loads(FIXTURE.read_text())[0]
+    del item[key]
+    with pytest.raises(ScheduleError):
+        Schedule.from_json(item)
+
+
+def test_list_parsers_on_odd_input():
+    for text in ["{}", "[1]"]:
+        with pytest.raises(ScheduleError):
+            sch.list_from_json(text)
+    assert sch.list_from_json_skipping_bad("{}") == []
+    assert sch.list_from_json_skipping_bad("  ") == []
+    assert sch.list_from_json_skipping_bad("[1]") == []
+
+
+def test_more_lock_rules():
+    other = every("other", {6}, 540, 600)
+    fewer_apps = replace(WORK, apps=())
+    with_apps = replace(WORK, apps=("com.google.android.youtube",))
+    with pytest.raises(LockedError):
+        sch.replace_all([with_apps], [fewer_apps], password_ok=False, now=NOW)
+    redirect = replace(WORK, action=Redirect("com.kindle"))
+    assert sch.replace_all([redirect], [WORK], False, NOW) == [WORK]
+    with pytest.raises(LockedError):
+        sch.replace_all(
+            [replace(WORK, action=Message("a"))],
+            [replace(WORK, action=Message("b"))],
+            False,
+            NOW,
+        )
+    # Others can be removed, disabled or added while one runs.
+    assert sch.replace_all([WORK, other], [WORK], False, NOW) == [WORK]
+    off = replace(other, enabled=False)
+    assert sch.replace_all([WORK, other], [WORK, off], False, NOW) == [WORK, off]
+    assert sch.replace_all([WORK], [WORK, other], False, NOW) == [WORK, other]
+    # Paused, so not running: free to change.
+    paused = replace(WORK, paused_until=ms("2026-10-12T17:00"))
+    assert sch.replace_all([paused], [], False, NOW) == []
+
+
+def test_pause_json_rewrites_only_that_schedule_and_keeps_unreadable_entries():
+    weird = {"id": "future", "plan": {"type": "monthly"}}
+    text = json.dumps([weird, WORK.to_json()])
+    result, stored = sch.pause_json(text, "work", True, NOW)
+    assert result == sch.PAUSED
+    items = json.loads(stored)
+    assert items[0] == weird
+    assert items[1]["pausedUntil"] == ms("2026-10-12T17:00")
+    assert sch.pause_json(text, "work", False, NOW) == (sch.WRONG_PASSWORD, None)
+    assert sch.pause_json(text, "future", True, NOW) == (sch.NOT_RUNNING, None)
+    assert sch.pause_json("garbage", "work", True, NOW) == (sch.NOT_RUNNING, None)
+    assert sch.pause_json(None, "work", True, NOW) == (sch.NOT_RUNNING, None)
+
+
+def test_system_zone_prefers_tz_then_localtime_then_a_fixed_offset(monkeypatch):
+    monkeypatch.setenv("TZ", "America/New_York")
+    assert str(sch._system_zone()) == "America/New_York"
+    monkeypatch.setenv("TZ", "Not/AZone")
+    monkeypatch.setattr(
+        sch.os.path, "realpath", lambda p: "/usr/share/zoneinfo/Asia/Tokyo"
+    )
+    assert str(sch._system_zone()) == "Asia/Tokyo"
+    monkeypatch.delenv("TZ")
+    monkeypatch.setattr(sch.os.path, "realpath", lambda p: "/etc/somewhere-else")
+    assert sch._system_zone().utcoffset(None) is not None  # fixed offset
