@@ -21,6 +21,9 @@ def test_known_domains_contains_expected_entries():
     assert "youtube.com" in urls
     assert "googlevideo.com" in urls
     assert "crunchyroll.com" in urls
+    assert "instagram.com" in urls
+    assert "tiktok.com" in urls
+    assert "facebook.com" in urls
 
 
 def test_known_domains_all_default_unblocked():

@@ -18,6 +18,14 @@ _KNOWN_DOMAINS = [
     Domain("www.googlevideo.com", "YouTube"),
     Domain("crunchyroll.com", "Crunchyroll"),
     Domain("www.crunchyroll.com", "Crunchyroll"),
+    Domain("instagram.com", "Instagram"),
+    Domain("www.instagram.com", "Instagram"),
+    Domain("tiktok.com", "TikTok"),
+    Domain("www.tiktok.com", "TikTok"),
+    Domain("m.tiktok.com", "TikTok"),
+    Domain("facebook.com", "Facebook"),
+    Domain("www.facebook.com", "Facebook"),
+    Domain("m.facebook.com", "Facebook"),
 ]
 
 
