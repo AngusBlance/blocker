@@ -201,9 +201,18 @@ DateTime? fakeNextStart(Schedule s, DateTime now) {
   if (!s.enabled) return null;
   bool usable(DateTime t) =>
       t.isAfter(now) && (s.pausedUntil == null || !t.isBefore(s.pausedUntil!));
+  final paused = s.pausedUntil;
+  final resumes =
+      paused != null &&
+          paused.isAfter(now) &&
+          fakeActiveUntil(s.copyWith(clearPause: true), paused) != null
+      ? paused
+      : null;
+  DateTime? soonest(DateTime? t) =>
+      resumes != null && (t == null || resumes.isBefore(t)) ? resumes : t;
   switch (s.plan) {
     case ForPlan(:final startsAt):
-      return usable(startsAt) ? startsAt : null;
+      return soonest(usable(startsAt) ? startsAt : null);
     case EveryPlan(:final days, :final start):
       for (var i = 0; i <= 14; i++) {
         final day = DateTime(now.year, now.month, now.day + i);
@@ -215,8 +224,8 @@ DateTime? fakeNextStart(Schedule s, DateTime now) {
           start ~/ 60,
           start % 60,
         );
-        if (usable(t)) return t;
+        if (usable(t)) return soonest(t);
       }
-      return null;
+      return soonest(null);
   }
 }

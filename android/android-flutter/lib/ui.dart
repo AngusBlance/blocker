@@ -247,7 +247,9 @@ String formatUntil(DateTime until, DateTime now) {
     return midnight ? 'midnight' : 'tomorrow ${formatClock(until)}';
   }
   const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return '${names[until.weekday - 1]} ${formatClock(until)}';
+  // A week or more away, a bare weekday would read as this one.
+  final next = days >= 7 ? 'next ' : '';
+  return '$next${names[until.weekday - 1]} ${formatClock(until)}';
 }
 
 /// A screen opened on top of the tabs (editor, unlock, password): the app's
@@ -307,8 +309,10 @@ class PushedPage extends StatelessWidget {
 /// Time left, rounded down to the minute: "1h 05m", "12m", "under a minute".
 String formatRemaining(Duration left) {
   if (left < const Duration(minutes: 1)) return 'under a minute';
-  final h = left.inHours;
-  final m = left.inMinutes % 60;
+  // Rounded up, so a block that has just started for an hour says "1h 00m".
+  final minutes = (left.inSeconds + 59) ~/ 60;
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
   if (h == 0) return '${m}m';
   return '${h}h ${m.toString().padLeft(2, '0')}m';
 }

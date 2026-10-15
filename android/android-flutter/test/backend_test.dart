@@ -123,4 +123,24 @@ void main() {
       expect(await ChannelBackend().scheduleStatus(), isEmpty);
     },
   );
+
+  test(
+    'nextSchedule parses a start, nothing, and rejects bad replies',
+    () async {
+      reply = '{"id":"evening","at":1760000000000}';
+      expect(
+        await ChannelBackend().nextSchedule(),
+        RunningSchedule(
+          'evening',
+          DateTime.fromMillisecondsSinceEpoch(1760000000000),
+        ),
+      );
+      reply = 'null';
+      expect(await ChannelBackend().nextSchedule(), isNull);
+      reply = null;
+      expect(await ChannelBackend().nextSchedule(), isNull);
+      reply = '{"id":"evening"}';
+      await expectLater(ChannelBackend().nextSchedule(), throwsFormatException);
+    },
+  );
 }

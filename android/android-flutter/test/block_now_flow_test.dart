@@ -191,7 +191,7 @@ void main() {
   testWidgets('the next row moves on once a schedule has started', (
     tester,
   ) async {
-    var clock = DateTime(2026, 10, 15, 17, 59);
+    var clock = DateTime(2026, 10, 15, 17, 59, 30);
     final backend = FakeBackend()
       ..savedSchedules = [
         Schedule(
@@ -205,15 +205,37 @@ void main() {
       ];
     await pump(tester, backend: backend, clock: () => clock);
     expect(find.text('Evening · from 18:00'), findsOneWidget);
-    clock = DateTime(2026, 10, 15, 18, 0, 2);
+    clock = DateTime(2026, 10, 15, 18, 0, 1);
     backend.clock = () => clock;
-    await tester.pump(const Duration(minutes: 1));
+    // Sooner than the once-a-minute refresh: the row refreshes when it starts.
+    await tester.pump(const Duration(seconds: 31));
     await tester.pumpAndSettle();
     expect(
-      find.text('Evening · 1 site · until 23:00 · 4h 59m left'),
+      find.text('Evening · 1 site · until 23:00 · 5h 00m left'),
       findsOneWidget,
     );
     // Running schedules aren't "next"; nothing else is scheduled.
     expect(find.textContaining(' · from '), findsNothing);
   });
+
+  testWidgets(
+    'a schedule ended early and then lengthened is next when the pause ends',
+    (tester) async {
+      final now = DateTime(2026, 10, 15, 10);
+      final backend = FakeBackend()
+        ..savedSchedules = [
+          Schedule(
+            id: 'work',
+            name: 'Work',
+            sites: ['Netflix'],
+            domains: ['netflix.com'],
+            apps: [],
+            plan: EveryPlan(days: {4}, start: 9 * 60, end: 18 * 60),
+            pausedUntil: DateTime(2026, 10, 15, 17), // ended when it was 9–5
+          ),
+        ];
+      await pump(tester, backend: backend, clock: () => now);
+      expect(find.text('Work · from 17:00'), findsOneWidget);
+    },
+  );
 }
