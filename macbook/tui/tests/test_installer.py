@@ -1,6 +1,7 @@
 import os
 import plistlib
 import subprocess
+import sys
 
 import pytest
 
@@ -73,24 +74,28 @@ def test_print_extension_instructions_points_at_the_real_extension_dir(
     assert (installer.EXTENSION_DIR / "manifest.json").is_file()
 
 
+PYTHON = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9"
+
+
 def _fake_sudo(monkeypatch, fail_bootstraps=0):
-    """Records commands; the plist copy is captured before its temp dir goes."""
-    calls, plists = [], []
+    """Records sudo commands; files are captured before their temp dir goes."""
+    calls, copied = [], {}
     failures = [fail_bootstraps]
 
     def run(cmd, **kwargs):
         calls.append(cmd)
-        if cmd[1] == "install" and cmd[-1].endswith(".plist"):
-            plists.append(plistlib.loads(open(cmd[-2], "rb").read()))
+        if cmd[1] == "install" and "-d" not in cmd:
+            copied[cmd[-1]] = open(cmd[-2], "rb").read()
         returncode = 0
         if cmd[1:3] == ["launchctl", "bootstrap"] and failures[0]:
             failures[0] -= 1
             returncode = 5
-        return subprocess.CompletedProcess(cmd, returncode, "", "")
+        return subprocess.CompletedProcess(cmd, returncode, b"", b"why it failed")
 
     monkeypatch.setattr(installer.subprocess, "run", run)
     monkeypatch.setattr(installer.time, "sleep", lambda s: None)
-    return calls, plists
+    monkeypatch.setattr(installer, "resolve_scheduler_python", lambda: PYTHON)
+    return calls, copied
 
 
 def test_install_scheduler_installs_root_owned_copies_and_a_launch_daemon(
@@ -98,37 +103,45 @@ def test_install_scheduler_installs_root_owned_copies_and_a_launch_daemon(
 ):
     schedules = tmp_path / ".blocker" / "schedules.json"
     monkeypatch.setattr(installer, "SCHEDULES_FILE", schedules)
-    calls, plists = _fake_sudo(monkeypatch)
+    calls, copied = _fake_sudo(monkeypatch)
 
     installer.install_scheduler()
 
     assert all(cmd[0] == "sudo" for cmd in calls)
-    copied = [cmd[-1] for cmd in calls if cmd[1] == "install" and "-d" not in cmd]
-    assert copied == [
-        str(installer.SCHEDULER_DIR / "schedule.py"),
-        str(installer.SCHEDULER_DIR / "schedule_helper.py"),
+    assert calls[0] == ["sudo", "rm", "-rf", str(installer.SCHEDULER_DIR)]
+    d = installer.SCHEDULER_DIR
+    assert list(copied) == [
+        str(d / "schedule.py"),
+        str(d / "schedule_helper.py"),
+        str(d / "allowed-domains.txt"),
+        str(installer.NEWSYSLOG_CONF),
         str(installer.SCHEDULER_PLIST),
     ]
     for cmd in calls:
         if cmd[1] == "install":
             assert "-o root -g wheel" in " ".join(cmd)
-    # The sources really exist (they're copied from the installed blocklib).
     for name in installer.SCHEDULER_FILES:
-        assert (installer.BLOCKLIB_DIR / name).is_file()
+        assert copied[str(d / name)] == (installer.BLOCKLIB_DIR / name).read_bytes()
+    allowed = copied[str(d / "allowed-domains.txt")].decode().split()
+    assert "youtube.com" in allowed and "www.tiktok.com" in allowed
+    assert not any("apple.com" in a for a in allowed)
 
-    (plist,) = plists
+    plist = plistlib.loads(copied[str(installer.SCHEDULER_PLIST)])
     assert plist["Label"] == installer.SCHEDULER_LABEL
     assert plist["ProgramArguments"] == [
-        "/usr/bin/python3",
+        PYTHON,
         "-I",
-        str(installer.SCHEDULER_DIR / "schedule_helper.py"),
+        str(d / "schedule_helper.py"),
         str(schedules),
     ]
     assert plist["WatchPaths"] == [str(schedules.parent)]
     assert plist["StartInterval"] == 30
+    assert plist["RunAtLoad"] is True
+    assert plist["StandardErrorPath"] == str(installer.SCHEDULER_LOG)
     assert schedules.parent.is_dir()  # so there's something to watch
-    assert [cmd[1:3] for cmd in calls[-2:]] == [
+    assert [cmd[1:3] for cmd in calls[-3:]] == [
         ["launchctl", "bootout"],
+        ["launchctl", "enable"],
         ["launchctl", "bootstrap"],
     ]
 
@@ -142,14 +155,51 @@ def test_install_scheduler_retries_a_bootstrap_launchd_refuses_at_first(
     assert sum(cmd[1:3] == ["launchctl", "bootstrap"] for cmd in calls) == 3
 
 
-def test_install_scheduler_gives_up_eventually(tmp_path, monkeypatch):
+def test_install_scheduler_gives_up_saying_why(tmp_path, monkeypatch):
     monkeypatch.setattr(installer, "SCHEDULES_FILE", tmp_path / "s.json")
     _fake_sudo(monkeypatch, fail_bootstraps=99)
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(RuntimeError, match="why it failed"):
         installer.install_scheduler()
 
 
 def test_scheduler_plist_escapes_odd_home_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(installer, "SCHEDULES_FILE", tmp_path / "a&b <c>" / "s.json")
-    plist = plistlib.loads(installer._scheduler_plist())
+    plist = plistlib.loads(installer._scheduler_plist(PYTHON))
     assert plist["ProgramArguments"][-1].endswith("a&b <c>/s.json")
+
+
+def test_the_interpreter_must_be_root_only(tmp_path):
+    # A python the user owns (this test's own venv) is refused.
+    user_python = tmp_path / "python3"
+    user_python.symlink_to(sys.executable)
+    with pytest.raises(RuntimeError, match="root-only"):
+        installer.resolve_scheduler_python(user_python)
+    with pytest.raises(RuntimeError, match="Command Line Tools"):
+        installer.resolve_scheduler_python(tmp_path / "missing")
+
+
+@pytest.mark.skipif(
+    not installer.CLT_PYTHON.exists(), reason="needs the Command Line Tools"
+)
+def test_the_command_line_tools_python_is_accepted():
+    python = installer.resolve_scheduler_python()
+    assert python.startswith("/Library/Developer/CommandLineTools/")
+    assert not os.path.islink(python)
+
+
+def test_uninstall_clears_the_section_then_removes_everything(tmp_path, monkeypatch):
+    calls, _ = _fake_sudo(monkeypatch)
+    helper_dir = tmp_path / "Blocker"
+    helper_dir.mkdir()
+    (helper_dir / "schedule_helper.py").write_text("")
+    monkeypatch.setattr(installer, "SCHEDULER_DIR", helper_dir)
+    installer.uninstall_scheduler()
+    assert calls[0][1:] == [
+        PYTHON,
+        "-I",
+        str(helper_dir / "schedule_helper.py"),
+        "--clear",
+    ]
+    assert calls[1][1:3] == ["launchctl", "bootout"]
+    assert calls[2][1:3] == ["rm", "-rf"]
+    assert str(installer.SCHEDULER_PLIST) in calls[2]

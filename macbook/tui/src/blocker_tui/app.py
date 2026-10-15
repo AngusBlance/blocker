@@ -347,10 +347,11 @@ class BlockerApp(App):
 
 
 USAGE = (
-    "usage: block [install]\n"
-    "  (no arguments)  launch the TUI\n"
-    "  install         set up Block.app, the sync daemon, and print\n"
-    "                  Chrome extension install instructions"
+    "usage: block [install | uninstall-scheduler]\n"
+    "  (no arguments)       launch the TUI\n"
+    "  install              set up Block.app, the sync daemon, the schedule\n"
+    "                       helper, and print Chrome extension instructions\n"
+    "  uninstall-scheduler  remove the schedule helper and its blocks"
 )
 
 
@@ -360,6 +361,12 @@ def main() -> None:
             from blocker_tui.installer import install
 
             install()
+            return
+        if sys.argv[1] == "uninstall-scheduler":
+            from blocker_tui.installer import uninstall_scheduler
+
+            uninstall_scheduler()
+            print("Schedule helper removed")
             return
         print(USAGE)
         sys.exit(0 if sys.argv[1] in ("-h", "--help") else 1)

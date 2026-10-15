@@ -232,9 +232,9 @@ def list_to_json(schedules: List[Schedule]) -> str:
 def list_from_json(text: str) -> List[Schedule]:
     """Strict: malformed JSON or duplicate ids is a ScheduleError."""
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ScheduleError(f"malformed schedule list: {e}") from e
+        data = _loads(text)
+    except (ValueError, RecursionError) as e:
+        raise ScheduleError(f"malformed schedule list: {e!r}") from e
     if not isinstance(data, list):
         raise ScheduleError("schedule list should be a JSON array")
     schedules = [Schedule.from_json(item) for item in data]
@@ -251,8 +251,8 @@ def list_from_json_skipping_bad(text: Optional[str]) -> List[Schedule]:
     if not text or not text.strip():
         return []
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+        data = _loads(text)
+    except (ValueError, RecursionError):
         return []
     if not isinstance(data, list):
         return []
@@ -330,8 +330,8 @@ def pause_json(
     if not password_ok:
         return WRONG_PASSWORD, None
     try:
-        items = json.loads(stored_text or "[]")
-    except json.JSONDecodeError:
+        items = _loads(stored_text or "[]")
+    except (ValueError, RecursionError):
         return NOT_RUNNING, None
     if not isinstance(items, list):
         return NOT_RUNNING, None
@@ -369,6 +369,18 @@ def next_up(
 
 
 # Helpers
+
+
+def _bounded_int(digits: str) -> int:
+    # Python 3.9 has no limit on int parsing; a huge number takes seconds.
+    if len(digits) > 20:
+        raise ValueError("number too long")
+    return int(digits)
+
+
+def _loads(text: str):
+    """json.loads for text a user (or anything running as them) wrote."""
+    return json.loads(text, parse_int=_bounded_int)
 
 
 def _aware(now: datetime) -> datetime:
