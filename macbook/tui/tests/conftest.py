@@ -23,3 +23,13 @@ def isolated_password(tmp_path, monkeypatch):
     monkeypatch.setattr("blocker_tui.app.is_password_set", fake_is_password_set)
     monkeypatch.setattr("blocker_tui.app.setup_password", fake_setup_password)
     monkeypatch.setattr("blocker_tui.app.get_password", fake_get_password)
+
+
+@pytest.fixture(autouse=True)
+def isolated_schedules(tmp_path, monkeypatch):
+    """Keeps every test off the real ~/.blocker/schedules.json and off
+    whether the root helper is installed on this machine."""
+    path = tmp_path / "schedules.json"
+    monkeypatch.setattr("blocker_tui.schedules.SCHEDULES_PATH", path)
+    monkeypatch.setattr("blocker_tui.app.scheduler_installed", lambda: True)
+    return path

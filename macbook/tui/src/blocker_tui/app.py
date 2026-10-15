@@ -3,6 +3,7 @@ import subprocess
 import sys
 import threading
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from textual.app import App, ComposeResult, SuspendNotSupported
@@ -12,9 +13,20 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
 
+from blocker_tui import schedules as sched_ui
+from blocker_tui.installer import scheduler_installed
+from blocklib import schedule_store
 from blocklib.core import HOSTS_FILE, HostsBlocker
 from blocklib.domain import known_domains
 from blocklib.password import get_password, is_password_set, setup_password
+from blocklib.schedule import (
+    NOT_RUNNING,
+    PAUSED,
+    EveryPlan,
+    ForPlan,
+    LockedError,
+    ScheduleError,
+)
 from blocklib.ws_server import DEFAULT_WS_PORT, SyncServer, notify_external_daemon
 
 SECTIONS = ["dashboard", "sites", "schedule", "unlock", "activity", "settings"]
@@ -30,13 +42,30 @@ SECTION_CONTENT = {
 
 
 def get_status(hosts_path: Path = HOSTS_FILE) -> bool:
-    return HostsBlocker(hosts_path).is_active
+    """Blocked manually or by a running schedule."""
+    return bool(HostsBlocker(hosts_path).all_blocked_urls)
+
+
+def load_schedules() -> list:
+    return schedule_store.load(sched_ui.SCHEDULES_PATH)
 
 
 def dashboard_text(hosts_path: Path = HOSTS_FILE, sync_running: bool = False) -> str:
     state = "BLOCKED" if get_status(hosts_path) else "not blocked"
     sync_state = f"ws://127.0.0.1:{DEFAULT_WS_PORT}" if sync_running else "NOT RUNNING"
-    return f"STATUS\n  state           {state}\n  extension sync  {sync_state}"
+    lines = [
+        "STATUS",
+        f"  state           {state}",
+        f"  extension sync  {sync_state}",
+        *sched_ui.dashboard_lines(load_schedules(), sched_ui.now()),
+    ]
+    return "\n".join(lines)
+
+
+def schedules_text(schedule_index: int) -> str:
+    return sched_ui.schedules_text(
+        load_schedules(), schedule_index, sched_ui.now(), scheduler_installed()
+    )
 
 
 def sites_with_status(hosts_path: Path = HOSTS_FILE) -> list:
@@ -57,6 +86,7 @@ def site_groups(hosts_path: Path = HOSTS_FILE) -> list:
 
 def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
     groups = site_groups(hosts_path)
+    scheduled = HostsBlocker(hosts_path).scheduled_urls
     blocked_count = sum(
         1 for _, members in groups if all(d.is_blocked for d in members)
     )
@@ -70,7 +100,12 @@ def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
             box = "( )"
         else:
             box = "(~)"
-        lines.append(f"{cursor} {box} {name}")
+        by_schedule = (
+            " · blocked by a schedule"
+            if any(d.url in scheduled for d in members)
+            else ""
+        )
+        lines.append(f"{cursor} {box} {name}{by_schedule}")
     lines.append("")
     lines.append("  (b) block all")
     return "\n".join(lines)
@@ -99,6 +134,7 @@ class Sidebar(Static):
 class Content(Static):
     section: reactive[str] = reactive(SECTIONS[0], layout=True)
     site_index: reactive[int] = reactive(0, layout=True)
+    schedule_index: reactive[int] = reactive(0, layout=True)
     sync_running: reactive[bool] = reactive(False)
 
     def render(self) -> str:
@@ -106,24 +142,26 @@ class Content(Static):
             return dashboard_text(sync_running=self.sync_running)
         if self.section == "sites":
             return sites_text(self.site_index)
+        if self.section == "schedule":
+            return schedules_text(self.schedule_index)
         return SECTION_CONTENT[self.section]
 
 
 class UnlockModal(ModalScreen):
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self, group_name: str, password: str) -> None:
+    def __init__(
+        self, group_name: str, password: str, title: str = "", reason: str = ""
+    ) -> None:
         super().__init__()
         self.group_name = group_name
         self.password = password
+        self.title = title or f"UNLOCK {group_name.upper()}"
+        self.reason = reason or "type the password below to unlock:"
 
     def compose(self) -> ComposeResult:
         yield Vertical(
-            Static(
-                f"UNLOCK {self.group_name.upper()}\n\n"
-                "type the password below to unlock:\n\n"
-                f"  {self.password}"
-            ),
+            Static(f"{self.title}\n\n{self.reason}\n\n  {self.password}"),
             Input(placeholder="type the password here", id="unlock-input"),
             id="unlock-dialog",
         )
@@ -133,6 +171,66 @@ class UnlockModal(ModalScreen):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.dismiss(event.value == self.password)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ConfirmModal(ModalScreen):
+    """y / n question. Dismisses with True or False."""
+
+    BINDINGS = [
+        ("y", "answer(True)", "Yes"),
+        ("n", "answer(False)", "No"),
+        ("escape", "answer(False)", "No"),
+    ]
+
+    def __init__(self, question: str) -> None:
+        super().__init__()
+        self.question = question
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(Static(f"{self.question}\n\n  (y) yes   (n) no"), id="dialog")
+
+    def action_answer(self, yes: bool) -> None:
+        self.dismiss(yes)
+
+
+class PresetModal(ModalScreen):
+    """Pick a preset with j/k and enter. Dismisses with it, or None."""
+
+    BINDINGS = [
+        ("j", "move(1)", "Down"),
+        ("k", "move(-1)", "Up"),
+        ("enter", "pick", "Add"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    index: reactive[int] = reactive(0)
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(Static(id="preset-list"), id="dialog")
+
+    def on_mount(self) -> None:
+        self._render_list()
+
+    def watch_index(self) -> None:
+        if self.is_mounted:
+            self._render_list()
+
+    def _render_list(self) -> None:
+        lines = ["NEW SCHEDULE", "blocks every site at these times:", ""]
+        for i, p in enumerate(sched_ui.PRESETS):
+            cursor = ">" if i == self.index else " "
+            lines.append(f"{cursor} {p.label:<10} {sched_ui.format_plan(p.plan)}")
+        lines += ["", "  (enter) add   (esc) cancel"]
+        self.query_one("#preset-list", Static).update("\n".join(lines))
+
+    def action_move(self, delta: int) -> None:
+        self.index = min(max(self.index + delta, 0), len(sched_ui.PRESETS) - 1)
+
+    def action_pick(self) -> None:
+        self.dismiss(sched_ui.PRESETS[self.index])
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -166,6 +264,16 @@ class BlockerApp(App):
         background: $surface;
         padding: 1 2;
     }
+    ConfirmModal, PresetModal {
+        align: center middle;
+    }
+    #dialog {
+        width: 64;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
     #unlock-dialog Input {
         margin-top: 1;
     }
@@ -178,6 +286,9 @@ class BlockerApp(App):
         Binding("enter", "focus_content", "Focus content / toggle site", show=False),
         Binding("h", "focus_sidebar", "Focus sidebar"),
         Binding("b", "block_sites", "Block"),
+        Binding("a", "add_schedule", "Add schedule", show=False),
+        Binding("e", "end_schedule_early", "End early", show=False),
+        Binding("d", "delete_schedule", "Delete schedule", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -217,6 +328,25 @@ class BlockerApp(App):
             setup_password()
         self._update_focus_classes()
         self._start_sync_server()
+        self._hosts_mtime = self._read_hosts_mtime()
+        # Schedules start and end on the clock: keep the view current, and
+        # tell the extension when the root helper rewrites /etc/hosts.
+        self.set_interval(5, self._tick)
+
+    @staticmethod
+    def _read_hosts_mtime():
+        try:
+            return HOSTS_FILE.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _tick(self) -> None:
+        self.query_one(Content).refresh(layout=True)
+        mtime = self._read_hosts_mtime()
+        if mtime != self._hosts_mtime:
+            self._hosts_mtime = mtime
+            if self._sync_server is not None:
+                self._sync_server.notify_change()
 
     def on_unmount(self) -> None:
         self._stop_sync_server()
@@ -265,6 +395,7 @@ class BlockerApp(App):
         content = self.query_one(Content)
         content.section = SECTIONS[sidebar.selected_index]
         content.site_index = 0
+        content.schedule_index = 0
 
     def action_cursor_down(self) -> None:
         if self.focus_pane == "sidebar":
@@ -284,6 +415,11 @@ class BlockerApp(App):
 
     def _move_site_cursor(self, delta: int) -> None:
         content = self.query_one(Content)
+        if content.section == "schedule":
+            rows = sched_ui.shown(load_schedules(), sched_ui.now())
+            last = max(len(rows) - 1, 0)
+            content.schedule_index = min(max(content.schedule_index + delta, 0), last)
+            return
         if content.section != "sites":
             return
         last = max(len(site_groups()) - 1, 0)
@@ -298,9 +434,152 @@ class BlockerApp(App):
 
     def action_focus_content(self) -> None:
         if self.focus_pane == "content":
-            self._toggle_selected_site()
+            if self.query_one(Content).section == "schedule":
+                self._toggle_selected_schedule()
+            else:
+                self._toggle_selected_site()
         else:
             self.focus_pane = "content"
+
+    # Schedules
+
+    def _in_schedules(self) -> bool:
+        return (
+            self.focus_pane == "content"
+            and self.query_one(Content).section == "schedule"
+        )
+
+    def _selected_schedule(self):
+        index = self.query_one(Content).schedule_index
+        return sched_ui.selected(load_schedules(), index, sched_ui.now())
+
+    def _ask_password(self, title: str, reason: str, then) -> None:
+        """Shows the unlock password; calls then() once it's typed right."""
+
+        def handle(correct) -> None:
+            if correct is None:
+                return
+            if correct is False:
+                self.notify("Incorrect password", severity="error")
+                return
+            then()
+
+        self.push_screen(UnlockModal("", get_password(), title, reason), handle)
+
+    def _save_schedules(self, name: str, incoming: list, done: str) -> None:
+        """Saves; if that would weaken a running schedule, asks for the
+        password and tries again with it."""
+
+        def write(password_ok: bool) -> None:
+            schedule_store.save(
+                incoming, password_ok, sched_ui.now(), sched_ui.SCHEDULES_PATH
+            )
+
+        try:
+            try:
+                write(False)
+            except LockedError:
+                self._ask_password(
+                    f"{name.upper()} IS RUNNING",
+                    "changing a running schedule needs the password:",
+                    lambda: self._finish_save(lambda: write(True), done),
+                )
+                return
+        except (OSError, ScheduleError) as e:
+            self.notify(f"Couldn't save: {e}", severity="error", timeout=6)
+            return
+        self._after_schedule_change(done)
+
+    def _finish_save(self, write, done: str) -> None:
+        try:
+            write()
+        except (OSError, ScheduleError) as e:
+            self.notify(f"Couldn't save: {e}", severity="error", timeout=6)
+            return
+        self._after_schedule_change(done)
+
+    def _after_schedule_change(self, message: str) -> None:
+        self.notify(message)
+        content = self.query_one(Content)
+        rows = sched_ui.shown(load_schedules(), sched_ui.now())
+        content.schedule_index = min(content.schedule_index, max(len(rows) - 1, 0))
+        content.refresh(layout=True)
+
+    def _toggle_selected_schedule(self) -> None:
+        s = self._selected_schedule()
+        if s is None or isinstance(s.plan, ForPlan):
+            return  # one-offs just run out; end them early instead
+        incoming = [
+            replace(x, enabled=not x.enabled) if x.id == s.id else x
+            for x in load_schedules()
+        ]
+        state = "off" if s.enabled else "on"
+        self._save_schedules(s.name, incoming, f"{s.name} turned {state}")
+
+    def action_add_schedule(self) -> None:
+        if not self._in_schedules():
+            return
+
+        def add(preset) -> None:
+            if preset is None:
+                return
+            new = sched_ui.new_schedule(preset)
+            self._save_schedules(
+                new.name, [*load_schedules(), new], f"Added {new.name}"
+            )
+
+        self.push_screen(PresetModal(), add)
+
+    def action_end_schedule_early(self) -> None:
+        if not self._in_schedules():
+            return
+        s = self._selected_schedule()
+        if s is None:
+            return
+        if not s.is_active(sched_ui.now()):
+            self.notify(f"{s.name} isn't running")
+            return
+
+        def end() -> None:
+            try:
+                result = schedule_store.end_early(
+                    s.id, True, sched_ui.now(), sched_ui.SCHEDULES_PATH
+                )
+            except OSError as e:
+                self.notify(f"Couldn't end it: {e}", severity="error", timeout=6)
+                return
+            message = {
+                PAUSED: f"{s.name} ended early",
+                NOT_RUNNING: f"{s.name} had already finished",
+            }.get(result, "Incorrect password")
+            self._after_schedule_change(message)
+
+        again = (
+            "it comes back as scheduled."
+            if isinstance(s.plan, EveryPlan)
+            else "this ends the block now."
+        )
+        self._ask_password(
+            f"END {s.name.upper()} EARLY", f"{again} type the password:", end
+        )
+
+    def action_delete_schedule(self) -> None:
+        if not self._in_schedules():
+            return
+        s = self._selected_schedule()
+        if s is None:
+            return
+        remaining = [x for x in load_schedules() if x.id != s.id]
+        if s.is_active(sched_ui.now()):
+            # The password prompt is confirmation enough.
+            self._save_schedules(s.name, remaining, f"Deleted {s.name}")
+            return
+
+        def confirmed(yes: bool) -> None:
+            if yes:
+                self._save_schedules(s.name, remaining, f"Deleted {s.name}")
+
+        self.push_screen(ConfirmModal(f"delete {s.name}?"), confirmed)
 
     def _toggle_selected_site(self) -> None:
         content = self.query_one(Content)
