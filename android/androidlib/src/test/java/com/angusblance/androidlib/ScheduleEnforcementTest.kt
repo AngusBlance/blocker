@@ -55,18 +55,25 @@ class ScheduleEnforcementTest {
     assertEquals(listOf(work), blocks.schedules)
   }
 
-  @Test
-  fun `inactive, disabled and paused schedules add nothing`() {
-    val off = work.copy(enabled = false)
-    val paused = work.copy(pausedUntil = at(12, "17:00").toInstant().toEpochMilli())
-    for (now in listOf(at(12, "08:00"), at(12, "10:00"))) {
-      val schedules = if (now.hour == 8) listOf(work) else listOf(off, paused)
-      val blocks = ActiveBlocks.compute(setOf("netflix.com"), emptySet(), schedules, now)
-      assertEquals(setOf("netflix.com"), blocks.domains)
-      assertTrue(blocks.apps.isEmpty())
-      assertTrue(blocks.schedules.isEmpty())
-    }
+  private fun addsNothing(schedule: Schedule, now: ZonedDateTime) {
+    val blocks = ActiveBlocks.compute(setOf("netflix.com"), emptySet(), listOf(schedule), now)
+    assertEquals(setOf("netflix.com"), blocks.domains)
+    assertTrue(blocks.apps.isEmpty())
+    assertTrue(blocks.schedules.isEmpty())
   }
+
+  @Test
+  fun `a schedule outside its hours adds nothing`() = addsNothing(work, at(12, "08:00"))
+
+  @Test
+  fun `a disabled schedule adds nothing`() =
+    addsNothing(work.copy(enabled = false), at(12, "10:00"))
+
+  @Test
+  fun `a paused schedule adds nothing`() = addsNothing(
+    work.copy(pausedUntil = at(12, "17:00").toInstant().toEpochMilli()),
+    at(12, "10:00"),
+  )
 
   @Test
   fun `schedules never loosen a manual block`() {

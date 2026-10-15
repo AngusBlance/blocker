@@ -9,6 +9,7 @@ import android.provider.Settings
 import com.angusblance.androidlib.BlockStore
 import com.angusblance.androidlib.BlockerAccessibilityService
 import com.angusblance.androidlib.Schedule
+import com.angusblance.androidlib.ScheduleRules
 import com.angusblance.androidlib.ScheduleStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -54,17 +55,24 @@ class MainActivity : FlutterActivity() {
         )
 
         "saveSchedules" -> try {
-          schedules.replaceAll(call.argument<String>("json") ?: "")
+          schedules.replaceAll(
+            call.argument<String>("json") ?: "",
+            call.argument<String>("password"),
+          )
           result.success(null)
+        } catch (e: ScheduleRules.LockedException) {
+          result.error("locked", e.message, null)
         } catch (e: IllegalArgumentException) {
           result.error("bad_schedules", e.message, null)
         }
 
+        // "paused", "wrong_password" or "not_running".
         "pauseSchedule" -> result.success(
           schedules.pause(
             call.argument<String>("id") ?: "",
             call.argument<String>("password") ?: "",
-          ),
+          )
+            .name.lowercase(),
         )
 
         "isServiceEnabled" -> result.success(isServiceEnabled())

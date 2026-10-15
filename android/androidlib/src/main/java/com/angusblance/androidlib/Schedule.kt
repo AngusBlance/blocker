@@ -57,19 +57,21 @@ data class Schedule(
       fun occurrenceEnd(now: ZonedDateTime): ZonedDateTime? {
         if (!covers(now)) return null
         val today = now.toLocalDate()
-        fun at(date: java.time.LocalDate, minute: Int) =
-          date.atTime(minute / 60, minute % 60).atZone(now.zone)
         val minute = now.hour * 60 + now.minute
-        return when {
-          start == end -> today.plusDays(1).atStartOfDay(now.zone)
+        val endsAt = when {
+          start == end -> today.plusDays(1).atStartOfDay()
 
-          start < end -> at(today, end)
+          start < end -> today.atTime(end / 60, end % 60)
 
-          minute >= start -> at(today.plusDays(1), end)
+          // Overnight: the evening part ends tomorrow, the morning part today.
+          minute >= start -> today.plusDays(1).atTime(end / 60, end % 60)
 
-          // overnight, evening part
-          else -> at(today, end) // overnight, morning part
+          else -> today.atTime(end / 60, end % 60)
         }
+        // In the autumn overlap a clock time happens twice; prefer the offset
+        // in force now, and take the later one if that would already be past.
+        val zoned = ZonedDateTime.ofLocal(endsAt, now.zone, now.offset)
+        return if (zoned.isAfter(now)) zoned else zoned.withLaterOffsetAtOverlap()
       }
 
       companion object {
@@ -167,7 +169,10 @@ data class Schedule(
 
     fun listFromJson(text: String): List<Schedule> = try {
       val array = JSONArray(text)
-      (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+      val list = (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+      val duplicates = list.groupingBy { it.id }.eachCount().filterValues { it > 1 }.keys
+      require(duplicates.isEmpty()) { "duplicate schedule ids: $duplicates" }
+      list
     } catch (e: JSONException) {
       throw IllegalArgumentException("malformed schedule list: ${e.message}", e)
     }

@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import java.time.ZonedDateTime
 
 // Covers the screen with BlockedActivity when a blocked app comes to the
 // front, or when a browser's address bar shows a blocked site. Android starts
@@ -15,12 +16,14 @@ import android.view.accessibility.AccessibilityEvent
 // the Flutter UI.
 class BlockerAccessibilityService : AccessibilityService() {
   private lateinit var store: ScheduleStore
+  private lateinit var manual: BlockStore
   private var lastBlocked: String? = null
   private var lastBlockedAt = 0L
   private val handler = Handler(Looper.getMainLooper())
 
   override fun onServiceConnected() {
     store = ScheduleStore(this)
+    manual = BlockStore(this)
     Log.i(TAG, "connected")
   }
 
@@ -29,7 +32,17 @@ class BlockerAccessibilityService : AccessibilityService() {
     // Manual blocks plus whatever schedules are running right now, worked out
     // per event so a schedule starts or ends without anything having to wake
     // the service up.
-    val blocks = store.activeBlocks()
+    // Never let a schedule problem take the service down: fall back to the
+    // manual block list.
+    val blocks = runCatching { store.activeBlocks() }.getOrElse {
+      Log.e(TAG, "schedules unreadable, using manual blocks only", it)
+      ActiveBlocks.compute(
+        manual.blockedDomains,
+        manual.blockedApps,
+        emptyList(),
+        ZonedDateTime.now(),
+      )
+    }
     if (packageName in blocks.apps) {
       checkApp(packageName)
     } else {

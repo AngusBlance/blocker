@@ -4,37 +4,47 @@ import android.content.Context
 import java.time.ZonedDateTime
 
 // Schedules live next to BlockStore's block list in the same app-private
-// SharedPreferences, as the JSON Schedule.kt and the Dart UI share.
+// SharedPreferences, as the JSON Schedule.kt and the Dart UI share. The rules
+// for changing them are in ScheduleRules; this applies them to storage.
+// commit() rather than apply(), so a failed write reaches the UI.
 class ScheduleStore(context: Context) {
   private val blockStore = BlockStore(context)
   private val prefs = context.applicationContext
     .getSharedPreferences(BlockStore.PREFS_NAME, Context.MODE_PRIVATE)
 
-  val schedules: List<Schedule>
-    get() = Schedule.listFromJsonSkippingBad(prefs.getString(KEY_SCHEDULES, null))
+  private val raw: String?
+    get() = prefs.getString(KEY_SCHEDULES, null)
 
-  // Replaces every schedule. Strict: a malformed list from the UI is an
-  // IllegalArgumentException and nothing is saved.
-  fun replaceAll(json: String) {
-    val parsed = Schedule.listFromJson(json)
-    prefs.edit().putString(KEY_SCHEDULES, Schedule.listToJson(parsed)).apply()
+  val schedules: List<Schedule>
+    get() = Schedule.listFromJsonSkippingBad(raw)
+
+  // Replaces every schedule. A save that would weaken a running schedule
+  // needs the unlock password (see ScheduleRules.replaceAll).
+  fun replaceAll(json: String, password: String? = null, now: ZonedDateTime = ZonedDateTime.now()) {
+    save(ScheduleRules.replaceAll(raw, json, passwordOk(password), now))
   }
 
   // Ends a running schedule early (decision D1): needs the unlock password and
-  // pauses only the occurrence running now. False if the password is wrong or
-  // the schedule isn't running.
-  fun pause(id: String, typedPassword: String, now: ZonedDateTime = ZonedDateTime.now()): Boolean {
-    if (typedPassword != blockStore.unlockPassword) return false
-    val all = schedules
-    val paused = all.find { it.id == id }?.pausedForCurrentOccurrence(now) ?: return false
-    prefs.edit()
-      .putString(KEY_SCHEDULES, Schedule.listToJson(all.map { if (it.id == id) paused else it }))
-      .apply()
-    return true
+  // pauses only the occurrence running now.
+  fun pause(
+    id: String,
+    password: String,
+    now: ZonedDateTime = ZonedDateTime.now(),
+  ): ScheduleRules.PauseResult {
+    val (result, next) = ScheduleRules.pause(raw, id, passwordOk(password), now)
+    if (next != null) save(next)
+    return result
   }
 
   fun activeBlocks(now: ZonedDateTime = ZonedDateTime.now()): ActiveBlocks =
     ActiveBlocks.compute(blockStore.blockedDomains, blockStore.blockedApps, schedules, now)
+
+  private fun save(json: String) {
+    check(prefs.edit().putString(KEY_SCHEDULES, json).commit()) { "couldn't save schedules" }
+  }
+
+  private fun passwordOk(password: String?) =
+    password != null && password == blockStore.unlockPassword
 
   companion object {
     private const val KEY_SCHEDULES = "schedules"

@@ -25,12 +25,25 @@ abstract class Backend {
 
   Future<List<Schedule>> schedules();
 
-  /// Replaces every schedule.
-  Future<void> saveSchedules(List<Schedule> schedules);
+  /// Replaces every schedule. Throws [ScheduleLockedException] if that would
+  /// weaken a schedule that's running now and [password] isn't the unlock
+  /// password.
+  Future<void> saveSchedules(List<Schedule> schedules, {String? password});
 
-  /// Ends a running schedule early (just the current occurrence). False if
-  /// the password is wrong or it isn't running.
-  Future<bool> pauseSchedule(String id, String password);
+  /// Ends a running schedule early (just the current occurrence).
+  Future<PauseResult> pauseSchedule(String id, String password);
+}
+
+enum PauseResult { paused, wrongPassword, notRunning }
+
+/// Saving would remove, disable or weaken a schedule that's running now.
+class ScheduleLockedException implements Exception {
+  ScheduleLockedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 class ChannelBackend implements Backend {
@@ -91,16 +104,33 @@ class ChannelBackend implements Backend {
   }
 
   @override
-  Future<void> saveSchedules(List<Schedule> schedules) =>
-      _channel.invokeMethod('saveSchedules', {
+  Future<void> saveSchedules(
+    List<Schedule> schedules, {
+    String? password,
+  }) async {
+    try {
+      await _channel.invokeMethod('saveSchedules', {
         'json': jsonEncode([for (final s in schedules) s.toJson()]),
+        'password': password,
       });
+    } on PlatformException catch (e) {
+      if (e.code == 'locked') {
+        throw ScheduleLockedException(e.message ?? 'schedule is running');
+      }
+      rethrow;
+    }
+  }
 
   @override
-  Future<bool> pauseSchedule(String id, String password) async =>
-      await _channel.invokeMethod<bool>('pauseSchedule', {
-        'id': id,
-        'password': password,
-      }) ??
-      false;
+  Future<PauseResult> pauseSchedule(String id, String password) async {
+    final result = await _channel.invokeMethod<String>('pauseSchedule', {
+      'id': id,
+      'password': password,
+    });
+    return switch (result) {
+      'paused' => PauseResult.paused,
+      'wrong_password' => PauseResult.wrongPassword,
+      _ => PauseResult.notRunning,
+    };
+  }
 }

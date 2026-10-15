@@ -34,8 +34,9 @@ void main() {
   test('saveSchedules sends the whole list as one JSON string', () async {
     await ChannelBackend().saveSchedules([work]);
     expect(calls.single.method, 'saveSchedules');
-    final json = (calls.single.arguments as Map)['json'] as String;
-    expect(jsonDecode(json), [work.toJson()]);
+    final args = calls.single.arguments as Map;
+    expect(jsonDecode(args['json'] as String), [work.toJson()]);
+    expect(args['password'], isNull);
   });
 
   test('schedules parses the JSON androidlib returns', () async {
@@ -45,12 +46,61 @@ void main() {
     expect(await ChannelBackend().schedules(), isEmpty);
   });
 
-  test('pauseSchedule passes id and password and returns the result', () async {
-    reply = true;
-    expect(await ChannelBackend().pauseSchedule('work', 'pw'), isTrue);
+  test('saveSchedules sends the password when given', () async {
+    await ChannelBackend().saveSchedules([work], password: 'pw');
+    expect((calls.single.arguments as Map)['password'], 'pw');
+  });
+
+  test(
+    'a locked save becomes ScheduleLockedException; other errors pass through',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => throw PlatformException(
+          code: 'locked',
+          message: '"Work" is running',
+        ),
+      );
+      await expectLater(
+        ChannelBackend().saveSchedules([work]),
+        throwsA(
+          isA<ScheduleLockedException>().having(
+            (e) => e.message,
+            'message',
+            '"Work" is running',
+          ),
+        ),
+      );
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => throw PlatformException(code: 'bad_schedules'),
+      );
+      await expectLater(
+        ChannelBackend().saveSchedules([work]),
+        throwsA(isA<PlatformException>()),
+      );
+    },
+  );
+
+  test('pauseSchedule passes id and password and maps the result', () async {
+    reply = 'paused';
+    expect(
+      await ChannelBackend().pauseSchedule('work', 'pw'),
+      PauseResult.paused,
+    );
     expect(calls.single.method, 'pauseSchedule');
     expect(calls.single.arguments, {'id': 'work', 'password': 'pw'});
-    reply = false;
-    expect(await ChannelBackend().pauseSchedule('work', 'nope'), isFalse);
+    reply = 'wrong_password';
+    expect(
+      await ChannelBackend().pauseSchedule('work', 'nope'),
+      PauseResult.wrongPassword,
+    );
+    reply = 'not_running';
+    expect(
+      await ChannelBackend().pauseSchedule('work', 'pw'),
+      PauseResult.notRunning,
+    );
   });
 }
