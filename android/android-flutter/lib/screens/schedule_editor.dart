@@ -133,6 +133,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
       _name.text.trim().isNotEmpty;
 
   void _applyPreset(SchedulePreset preset) => setState(() {
+    _openTime = null; // an open wheel would still show the old time
     _days = {...preset.days};
     _allDay = false;
     _start = _timedStart = preset.start;
@@ -542,11 +543,23 @@ enum _TimeEnd { from, to }
 
 /// A scroll wheel for a time of day (Flutter's own Cupertino picker), 24
 /// hour, in 5-minute steps, or 1-minute ones if the time isn't on a 5.
-class _TimeWheel extends StatelessWidget {
+///
+/// The picker only reads its start time and step when it's created, so both
+/// are fixed for as long as this wheel is open; anything that changes the
+/// time from outside closes the wheel instead.
+class _TimeWheel extends StatefulWidget {
   const _TimeWheel({super.key, required this.minute, required this.onChanged});
 
   final int minute;
   final ValueChanged<int> onChanged;
+
+  @override
+  State<_TimeWheel> createState() => _TimeWheelState();
+}
+
+class _TimeWheelState extends State<_TimeWheel> {
+  late final int _start = widget.minute;
+  late final int _step = _start % 5 == 0 ? 5 : 1;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -566,9 +579,9 @@ class _TimeWheel extends StatelessWidget {
         key: const Key('time-wheel'),
         mode: CupertinoDatePickerMode.time,
         use24hFormat: true,
-        minuteInterval: minute % 5 == 0 ? 5 : 1,
-        initialDateTime: DateTime(2000, 1, 1, minute ~/ 60, minute % 60),
-        onDateTimeChanged: (t) => onChanged(t.hour * 60 + t.minute),
+        minuteInterval: _step,
+        initialDateTime: DateTime(2000, 1, 1, _start ~/ 60, _start % 60),
+        onDateTimeChanged: (t) => widget.onChanged(t.hour * 60 + t.minute),
       ),
     ),
   );

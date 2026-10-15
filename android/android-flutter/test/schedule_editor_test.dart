@@ -63,9 +63,6 @@ Future<void> setTime(
   int minute,
 ) async {
   await tapKey(tester, key);
-  if (find.byKey(const Key('time-wheel')).evaluate().isEmpty) {
-    await tapKey(tester, key); // it was already open, and that closed it
-  }
   wheel(tester).onDateTimeChanged(DateTime(2000, 1, 1, hour, minute));
   await tester.pumpAndSettle();
 }
@@ -426,5 +423,41 @@ void main() {
       find.text("couldn't list your apps. go back and try again."),
       findsOneWidget,
     );
+  });
+
+  testWidgets('dragging the real wheel sets the time, and keeps its step', (
+    tester,
+  ) async {
+    await pumpEditor(
+      tester,
+      initial: Schedule(
+        id: 'odd',
+        name: 'Odd',
+        sites: ['YouTube'],
+        domains: sites.first.domains,
+        apps: sites.first.apps,
+        plan: EveryPlan(days: {1}, start: 9 * 60 + 7, end: 17 * 60),
+      ),
+    );
+    await tapKey(tester, 'time-from');
+    final columns = find.descendant(
+      of: find.byKey(const Key('time-wheel')),
+      matching: find.byType(CupertinoPicker),
+    );
+    // Minutes 07 -> 10 (one-minute steps), then the hour 09 -> 10.
+    await tester.drag(columns.at(1), const Offset(0, -32.0 * 3));
+    await tester.pumpAndSettle();
+    expect(find.text('09:10'), findsWidgets);
+    await tester.drag(columns.at(0), const Offset(0, -32.0));
+    await tester.pumpAndSettle();
+    expect(find.text('10:10'), findsWidgets); // the minutes didn't jump
+  });
+
+  testWidgets('a preset closes an open wheel', (tester) async {
+    await pumpEditor(tester);
+    await tapKey(tester, 'time-from');
+    await tapKey(tester, 'preset-evenings');
+    expect(find.byKey(const Key('time-wheel')), findsNothing);
+    expect(summary(tester), 'every day · 18:00–23:00');
   });
 }
