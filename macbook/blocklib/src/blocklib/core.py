@@ -2,6 +2,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from .schedule_helper import LOCK_FILE, scheduled_hostnames
+
 HOSTS_FILE = Path("/etc/hosts")
 BEGIN_MARK = "# BLOCKER-BEGIN"
 END_MARK = "# BLOCKER-END"
@@ -18,6 +20,18 @@ class HostsBlocker:
     @property
     def blocked_urls(self) -> set:
         return self._parse_blocked_urls(self.raw_content)
+
+    @property
+    def scheduled_urls(self) -> set:
+        """Blocked by a running schedule: the section the root scheduler
+        helper writes (read-only here)."""
+        return scheduled_hostnames(self.raw_content)
+
+    @property
+    def all_blocked_urls(self) -> set:
+        """Everything blocked right now, manually or by a schedule."""
+        content = self.raw_content
+        return self._parse_blocked_urls(content) | scheduled_hostnames(content)
 
     @property
     def is_active(self) -> bool:
@@ -53,14 +67,31 @@ class HostsBlocker:
             tmp.write(content)
             tmp_path = tmp.name
         try:
-            subprocess.run(["sudo", "cp", tmp_path, str(self.hosts_path)], check=True)
+            # Same lock as the root schedule helper, so neither undoes the
+            # other's change; -k keeps the lock file for the next user.
+            subprocess.run(
+                [
+                    "sudo",
+                    "/usr/bin/lockf",
+                    "-k",
+                    "-t",
+                    "10",
+                    str(LOCK_FILE),
+                    "cp",
+                    tmp_path,
+                    str(self.hosts_path),
+                ],
+                check=True,
+            )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
     @staticmethod
     def _flush_dns() -> None:
-        subprocess.run(["sudo", "dscacheutil", "-flushcache"], check=True)
-        subprocess.run(["sudo", "killall", "-HUP", "mDNSResponder"], check=True)
+        subprocess.run(["sudo", "/usr/bin/dscacheutil", "-flushcache"], check=True)
+        subprocess.run(
+            ["sudo", "/usr/bin/killall", "-HUP", "mDNSResponder"], check=True
+        )
 
     @staticmethod
     def _extract_block(content: str):

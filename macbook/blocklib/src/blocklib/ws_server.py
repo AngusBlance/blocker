@@ -85,13 +85,13 @@ class SyncServer:
             self._clients.discard(websocket)
 
     async def _send_state(self, websocket) -> None:
-        blocked = sorted(HostsBlocker().blocked_urls)
+        blocked = sorted(HostsBlocker().all_blocked_urls)
         await websocket.send(json.dumps({"blocked": blocked}))
 
     async def _broadcast(self) -> None:
         if not self._clients:
             return
-        blocked = sorted(HostsBlocker().blocked_urls)
+        blocked = sorted(HostsBlocker().all_blocked_urls)
         message = json.dumps({"blocked": blocked})
         await asyncio.gather(
             *(client.send(message) for client in list(self._clients)),

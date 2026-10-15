@@ -132,3 +132,15 @@ def test_str_reports_inactive_when_empty(tmp_path):
 def test_repr_includes_hosts_path(tmp_path):
     path = write_hosts(tmp_path, BASE_HOSTS)
     assert str(path) in repr(HostsBlocker(path))
+
+
+def test_privileged_writes_take_the_schedule_helpers_lock(tmp_path, monkeypatch):
+    from blocklib import core
+    from blocklib.schedule_helper import LOCK_FILE
+
+    calls = []
+    monkeypatch.setattr(core.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    HostsBlocker(write_hosts(tmp_path, BASE_HOSTS)).block("netflix.com")
+    cp = calls[0]
+    assert cp[:3] == ["sudo", "/usr/bin/lockf", "-k"]
+    assert str(LOCK_FILE) in cp and cp[-3] == "cp"
