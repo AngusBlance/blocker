@@ -3,6 +3,8 @@ package com.angusblance.androidlib
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -15,6 +17,7 @@ class BlockerAccessibilityService : AccessibilityService() {
   private lateinit var store: BlockStore
   private var lastBlocked: String? = null
   private var lastBlockedAt = 0L
+  private val handler = Handler(Looper.getMainLooper())
 
   override fun onServiceConnected() {
     store = BlockStore(this)
@@ -51,11 +54,11 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     val host = UrlMatcher.hostOf(bar.text?.toString() ?: return) ?: return
     UrlMatcher.matchingDomain(host, blocked) ?: return
-    show(host, host)
+    show(host, host, leaveBrowserPage = true)
   }
 
   // `key` is the host or package name; `label` is what the block screen shows.
-  private fun show(key: String, label: String) {
+  private fun show(key: String, label: String, leaveBrowserPage: Boolean = false) {
     // Events arrive in bursts; launch the block screen once.
     val now = SystemClock.elapsedRealtime()
     if (key == lastBlocked && now - lastBlockedAt < DEBOUNCE_MS) return
@@ -63,6 +66,18 @@ class BlockerAccessibilityService : AccessibilityService() {
     lastBlockedAt = now
 
     Log.i(TAG, "blocking $key")
+    if (leaveBrowserPage) {
+      // Press Back in the browser first, so the tab leaves the blocked page
+      // (or closes, if it was opened just for it). Otherwise going back into
+      // the browser lands on the same page and gets blocked all over again.
+      performGlobalAction(GLOBAL_ACTION_BACK)
+      handler.postDelayed({ launchBlockScreen(label) }, BACK_SETTLE_MS)
+    } else {
+      launchBlockScreen(label)
+    }
+  }
+
+  private fun launchBlockScreen(label: String) {
     startActivity(
       Intent(this, BlockedActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -81,5 +96,6 @@ class BlockerAccessibilityService : AccessibilityService() {
   companion object {
     const val TAG = "BlockerService"
     private const val DEBOUNCE_MS = 1500L
+    private const val BACK_SETTLE_MS = 300L
   }
 }
