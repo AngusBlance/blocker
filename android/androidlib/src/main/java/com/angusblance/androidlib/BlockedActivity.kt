@@ -40,6 +40,10 @@ class BlockedActivity : Activity() {
     val host = intent.getStringExtra(EXTRA_HOST) ?: "this site"
     addView(mono("BLOCKED", 14f, ACCENT).apply { setTypeface(typeface, Typeface.BOLD) })
     addView(mono(host, 22f, FOREGROUND).apply { setPadding(0, 16, 0, 16) })
+    // A schedule's own message ("go to bed"), if it has one.
+    intent.getStringExtra(EXTRA_MESSAGE)?.let { message ->
+      addView(mono(message, 18f, FOREGROUND).apply { setPadding(0, 0, 0, 24) })
+    }
     addView(
       mono("unblock it from the blocker app with your password.", 13f, MUTED).apply {
         setPadding(0, 0, 0, 56)
@@ -76,6 +80,7 @@ class BlockedActivity : Activity() {
 
   companion object {
     const val EXTRA_HOST = "host"
+    const val EXTRA_MESSAGE = "message"
     private val BACKGROUND = Color.parseColor("#121212")
     private val FOREGROUND = Color.parseColor("#e0e0e0")
     private val MUTED = Color.parseColor("#8b8b8b")

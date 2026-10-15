@@ -104,6 +104,15 @@ class FakeBackend implements Backend {
         RunningSchedule(s.id, until),
   ];
 
+  List<InstalledApp> launchableApps = const [
+    InstalledApp('com.duolingo', 'Duolingo'),
+    InstalledApp('com.amazon.kindle', 'Kindle'),
+    InstalledApp('com.google.android.keep', 'Keep Notes'),
+  ];
+
+  @override
+  Future<List<InstalledApp>> installedApps() async => launchableApps;
+
   @override
   Future<PauseResult> pauseSchedule(String id, String typed) async {
     if (typed != password) return PauseResult.wrongPassword;

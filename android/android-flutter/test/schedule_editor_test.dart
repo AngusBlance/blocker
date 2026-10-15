@@ -1,3 +1,4 @@
+import 'package:blocker_flutter/backend.dart';
 import 'package:blocker_flutter/schedule.dart';
 import 'package:blocker_flutter/screens/schedule_editor.dart';
 import 'package:blocker_flutter/sites.dart';
@@ -15,6 +16,7 @@ Future<Harness> pumpEditor(
   WidgetTester tester, {
   Schedule? initial,
   bool canDelete = false,
+  bool withApps = false,
 }) async {
   final h = Harness();
   tester.view.physicalSize = const Size(1080, 2400);
@@ -29,6 +31,12 @@ Future<Harness> pumpEditor(
           newId: () => 'new-id',
           onSave: (s) async => h.saved = s,
           onDelete: canDelete ? () async => h.deleted = true : null,
+          loadApps: withApps
+              ? () async => const [
+                  InstalledApp('com.duolingo', 'Duolingo'),
+                  InstalledApp('com.amazon.kindle', 'Kindle'),
+                ]
+              : null,
           pickTime: (context, initial) async =>
               h.picks.isEmpty ? null : h.picks.removeAt(0),
         ),
@@ -231,5 +239,87 @@ void main() {
       isSemantics(label: 'Saturday', isButton: true, hasTapAction: true),
     );
     handle.dispose();
+  });
+
+  Future<void> namedYouTubeSchedule(WidgetTester tester) async {
+    await tester.enterText(find.byKey(const Key('schedule-name')), 'nights');
+    await tapKey(tester, 'site-chip-YouTube');
+  }
+
+  testWidgets('by default a schedule shows the block screen', (tester) async {
+    final h = await pumpEditor(tester);
+    await namedYouTubeSchedule(tester);
+    await tapKey(tester, 'save-schedule');
+    expect(h.saved!.action, const BlockAction());
+  });
+
+  testWidgets('a schedule can show my own message', (tester) async {
+    final h = await pumpEditor(tester);
+    await namedYouTubeSchedule(tester);
+    await tapKey(tester, 'action-message');
+    await tapKey(tester, 'save-schedule');
+    expect(h.saved, isNull); // no message yet
+    expect(find.text('write your message.'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('action-message-text')),
+      '  go to bed ',
+    );
+    await tapKey(tester, 'save-schedule');
+    expect(h.saved!.action, const MessageAction('go to bed'));
+  });
+
+  testWidgets(
+    'a schedule can send me to another app, picked from a searchable list',
+    (tester) async {
+      final h = await pumpEditor(tester, withApps: true);
+      await namedYouTubeSchedule(tester);
+      await tapKey(tester, 'action-redirect');
+      expect(find.text('pick an app to send you to.'), findsOneWidget);
+      await tapKey(tester, 'pick-app');
+      expect(find.text('Duolingo'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('app-search')), 'kin');
+      await tester.pumpAndSettle();
+      expect(find.text('Duolingo'), findsNothing);
+      await tapKey(tester, 'app-com.amazon.kindle');
+      expect(find.text('send me to Kindle'), findsOneWidget);
+      await tapKey(tester, 'save-schedule');
+      expect(h.saved!.action, const RedirectAction('com.amazon.kindle'));
+    },
+  );
+
+  testWidgets('an app search with no matches says so', (tester) async {
+    await pumpEditor(tester, withApps: true);
+    await tapKey(tester, 'action-redirect');
+    await tapKey(tester, 'pick-app');
+    await tester.enterText(find.byKey(const Key('app-search')), 'zzz');
+    await tester.pumpAndSettle();
+    expect(find.text('no apps match.'), findsOneWidget);
+  });
+
+  testWidgets('editing a redirect shows the app by name and keeps it', (
+    tester,
+  ) async {
+    final existing = Schedule(
+      id: 'r',
+      name: 'Read instead',
+      sites: ['TikTok'],
+      domains: ['tiktok.com'],
+      apps: [],
+      plan: EveryPlan(days: {1}, start: 1200, end: 1320),
+      action: const RedirectAction('com.amazon.kindle'),
+    );
+    final h = await pumpEditor(tester, initial: existing, withApps: true);
+    await tester.pumpAndSettle();
+    expect(find.text('send me to Kindle'), findsOneWidget);
+    await tapKey(tester, 'save-schedule');
+    expect(h.saved!.action, const RedirectAction('com.amazon.kindle'));
+  });
+
+  testWidgets('without the app list the send-me option is hidden', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    expect(find.byKey(const Key('action-redirect')), findsNothing);
+    expect(find.byKey(const Key('action-message')), findsOneWidget);
   });
 }

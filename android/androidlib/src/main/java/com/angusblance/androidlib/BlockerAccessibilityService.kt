@@ -44,20 +44,26 @@ class BlockerAccessibilityService : AccessibilityService() {
       )
     }
     if (packageName in blocks.apps) {
-      checkApp(packageName)
+      checkApp(packageName, blocks)
     } else {
-      checkBrowser(packageName, blocks.domains)
+      checkBrowser(packageName, blocks)
     }
   }
 
-  private fun checkApp(packageName: String) {
+  private fun checkApp(packageName: String, blocks: ActiveBlocks) {
     // Only when it's actually in front, not e.g. a notification it posted.
     if (rootInActiveWindow?.packageName?.toString() != packageName) return
-    show(packageName, appLabel(packageName))
+    show(
+      packageName,
+      appLabel(packageName),
+      blocks.actionFor(app = packageName),
+      blockedApp = packageName,
+    )
   }
 
-  private fun checkBrowser(packageName: String, blocked: Set<String>) {
+  private fun checkBrowser(packageName: String, blocks: ActiveBlocks) {
     val barIds = BrowserUrlBars.idsFor(packageName) ?: return
+    val blocked = blocks.domains
     if (blocked.isEmpty()) return
 
     val root = rootInActiveWindow ?: return
@@ -70,11 +76,17 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     val host = UrlMatcher.hostOf(bar.text?.toString() ?: return) ?: return
     UrlMatcher.matchingDomain(host, blocked) ?: return
-    show(host, host, leaveBrowserPage = true)
+    show(host, host, blocks.actionFor(host = host), leaveBrowserPage = true)
   }
 
   // `key` is the host or package name; `label` is what the block screen shows.
-  private fun show(key: String, label: String, leaveBrowserPage: Boolean = false) {
+  private fun show(
+    key: String,
+    label: String,
+    action: Schedule.Action,
+    blockedApp: String? = null,
+    leaveBrowserPage: Boolean = false,
+  ) {
     // Events arrive in bursts; launch the block screen once.
     val now = SystemClock.elapsedRealtime()
     if (key == lastBlocked && now - lastBlockedAt < DEBOUNCE_MS) return
@@ -82,23 +94,38 @@ class BlockerAccessibilityService : AccessibilityService() {
     lastBlockedAt = now
 
     Log.i(TAG, "blocking $key")
+    val response = BlockResponse.decide(action, label, blockedApp) {
+      packageManager.getLaunchIntentForPackage(it) !=
+        null
+    }
     if (leaveBrowserPage) {
       // Press Back in the browser first, so the tab leaves the blocked page
       // (or closes, if it was opened just for it). Otherwise going back into
       // the browser lands on the same page and gets blocked all over again.
       performGlobalAction(GLOBAL_ACTION_BACK)
-      handler.postDelayed({ launchBlockScreen(label) }, BACK_SETTLE_MS)
+      handler.postDelayed({ respond(response) }, BACK_SETTLE_MS)
     } else {
-      launchBlockScreen(label)
+      respond(response)
     }
   }
 
-  private fun launchBlockScreen(label: String) {
-    startActivity(
-      Intent(this, BlockedActivity::class.java)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        .putExtra(BlockedActivity.EXTRA_HOST, label),
-    )
+  private fun respond(response: BlockResponse) {
+    when (response) {
+      is BlockResponse.BlockScreen -> startActivity(
+        Intent(this, BlockedActivity::class.java)
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+          .putExtra(BlockedActivity.EXTRA_HOST, response.label)
+          .putExtra(BlockedActivity.EXTRA_MESSAGE, response.message),
+      )
+
+      is BlockResponse.OpenApp -> {
+        val launch = packageManager.getLaunchIntentForPackage(response.packageName)
+        if (launch != null) {
+          Log.i(TAG, "sending to ${response.packageName}")
+          startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+      }
+    }
   }
 
   private fun appLabel(packageName: String): String = try {

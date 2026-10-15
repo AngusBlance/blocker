@@ -120,6 +120,7 @@ class SchedulesScreen extends StatelessWidget {
               initial: initial,
               newId: () => newScheduleId('schedule'),
               pickTime: pickTime,
+              loadApps: blocker.backend.installedApps,
               onSave: (schedule) async {
                 final saved = await _guarded(
                   route,

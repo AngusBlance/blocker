@@ -82,6 +82,19 @@ class MainActivity : FlutterActivity() {
           result.error("error", e.message, null)
         }
 
+        // Apps a schedule can send you to instead: everything with a launcher
+        // icon except Blocker itself, sorted by name.
+        "installedApps" -> {
+          val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+          val apps = packageManager.queryIntentActivities(launcher, 0)
+            .map { it.activityInfo.packageName to it.loadLabel(packageManager).toString() }
+            .filter { it.first != packageName }
+            .distinctBy { it.first }
+            .sortedBy { it.second.lowercase() }
+            .map { (pkg, label) -> mapOf("package" to pkg, "label" to label) }
+          result.success(apps)
+        }
+
         "isServiceEnabled" -> result.success(isServiceEnabled())
 
         "sdkInt" -> result.success(Build.VERSION.SDK_INT)
