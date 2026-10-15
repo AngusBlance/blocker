@@ -18,6 +18,18 @@ import io.flutter.plugin.common.MethodChannel
 // The Dart UI's way into androidlib, over a Flutter method channel.
 class MainActivity : FlutterActivity() {
   private val store by lazy { BlockStore(this) }
+
+  @Volatile private var appsCache: List<Map<String, String>>? = null
+
+  private fun loadApps(): List<Map<String, String>> {
+    val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    return packageManager.queryIntentActivities(launcher, 0)
+      .map { it.activityInfo.packageName to it.loadLabel(packageManager).toString() }
+      .filter { it.first != packageName }
+      .distinctBy { it.first }
+      .sortedBy { it.second.lowercase() }
+      .map { (pkg, label) -> mapOf("package" to pkg, "label" to label) }
+  }
   private val schedules by lazy { ScheduleStore(this) }
 
   private val serviceComponent
@@ -80,6 +92,25 @@ class MainActivity : FlutterActivity() {
           result.success(outcome.name.lowercase())
         } catch (e: Exception) {
           result.error("error", e.message, null)
+        }
+
+        // Apps a schedule can send you to instead: everything with a launcher
+        // icon except Blocker itself, sorted by name. Loading every app's name
+        // is slow, so it's done off the main thread and kept for next time.
+        "installedApps" -> {
+          appsCache?.let {
+            result.success(it)
+            return@setMethodCallHandler
+          }
+          Thread {
+            val apps = runCatching { loadApps() }
+            runOnUiThread {
+              apps.onSuccess {
+                appsCache = it
+                result.success(it)
+              }.onFailure { result.error("error", it.message, null) }
+            }
+          }.start()
         }
 
         "isServiceEnabled" -> result.success(isServiceEnabled())

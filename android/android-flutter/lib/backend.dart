@@ -35,6 +35,16 @@ abstract class Backend {
 
   /// Schedules running now, with when each one's current occurrence ends.
   Future<List<RunningSchedule>> scheduleStatus();
+
+  /// Apps a schedule can send you to instead (launchable, not Blocker).
+  Future<List<InstalledApp>> installedApps();
+}
+
+class InstalledApp {
+  const InstalledApp(this.packageName, this.label);
+
+  final String packageName;
+  final String label;
 }
 
 class RunningSchedule {
@@ -165,6 +175,20 @@ class ChannelBackend implements Backend {
           ),
           _ => throw FormatException('bad schedule status: $item'),
         },
+    ];
+  }
+
+  @override
+  Future<List<InstalledApp>> installedApps() async {
+    final apps =
+        await _channel.invokeListMethod<Map<Object?, Object?>>(
+          'installedApps',
+        ) ??
+        [];
+    return [
+      for (final app in apps)
+        if (app case {'package': final String pkg, 'label': final String label})
+          InstalledApp(pkg, label),
     ];
   }
 }

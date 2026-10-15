@@ -10,6 +10,26 @@ data class ActiveBlocks(
   val apps: Set<String>,
   val schedules: List<Schedule>,
 ) {
+  // What to do about a blocked site (`host`) or app (`app`): the action of
+  // the first running schedule covering it, in list order, that does more
+  // than plain blocking; otherwise just block (manual blocks always just
+  // block). Decision D2.
+  fun actionFor(host: String? = null, app: String? = null): Schedule.Action =
+    scheduleFor(host, app)?.action ?: Schedule.Action.Block
+
+  // The running schedule whose action applies (see actionFor), if any.
+  fun scheduleFor(host: String? = null, app: String? = null): Schedule? =
+    schedules.firstOrNull { s ->
+      s.action != Schedule.Action.Block &&
+        (
+          (app != null && app in s.apps) ||
+            (
+              host != null &&
+                UrlMatcher.matchingDomain(host, s.domains.map(UrlMatcher::normalizeDomain)) != null
+              )
+          )
+    }
+
   companion object {
     fun compute(
       manualDomains: Set<String>,

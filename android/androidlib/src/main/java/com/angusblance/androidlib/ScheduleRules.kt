@@ -18,7 +18,8 @@ object ScheduleRules {
   // Ending a schedule early must cost the unlock password (decision D1), so
   // without `passwordOk` a save may not weaken anything running now: every
   // active schedule must still be there, still enabled, with the same plan
-  // and action, still blocking at least the same sites and apps. Pauses are
+  // and action (or plain blocking), still blocking at least the same sites
+  // and apps. Pauses are
   // only ever set by pause(), so incoming pausedUntil values are ignored and
   // the stored ones kept.
   //
@@ -42,7 +43,8 @@ object ScheduleRules {
         val kept = next != null &&
           next.enabled &&
           next.plan == running.plan &&
-          next.action == running.action &&
+          // Plain blocking is the strictest action, so switching to it is fine.
+          (next.action == running.action || next.action == Schedule.Action.Block) &&
           next.domains.containsAll(running.domains) &&
           next.apps.containsAll(running.apps)
         if (!kept) {

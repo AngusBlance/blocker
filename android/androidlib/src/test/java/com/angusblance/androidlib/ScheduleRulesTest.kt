@@ -195,4 +195,14 @@ class ScheduleRulesTest {
     val paused = work.copy(pausedUntil = at(12, "17:00").toInstant().toEpochMilli())
     assertEquals("[]", ScheduleRules.status(listOf(paused), monday10))
   }
+
+  @Test
+  fun `switching a running schedule to plain blocking needs no password`() {
+    val redirecting = work.copy(action = Schedule.Action.Redirect("com.amazon.kindle"))
+    val stored = json(redirecting)
+    assertEquals(Schedule.Action.Block, save(stored, work)[0].action)
+    assertThrows(ScheduleRules.LockedException::class.java) {
+      save(stored, work.copy(action = Schedule.Action.Message("hi")))
+    }
+  }
 }

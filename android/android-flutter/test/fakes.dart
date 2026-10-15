@@ -83,7 +83,8 @@ class FakeBackend implements Backend {
             kept != null &&
             kept.enabled &&
             kept.plan == running.plan &&
-            kept.action == running.action &&
+            (kept.action == running.action ||
+                kept.action == const BlockAction()) &&
             running.domains.every(kept.domains.contains) &&
             running.apps.every(kept.apps.contains);
         if (!ok) throw ScheduleLockedException('"${running.name}" is running');
@@ -103,6 +104,15 @@ class FakeBackend implements Backend {
       if (fakeActiveUntil(s, clock()) case final until?)
         RunningSchedule(s.id, until),
   ];
+
+  List<InstalledApp> launchableApps = const [
+    InstalledApp('com.duolingo', 'Duolingo'),
+    InstalledApp('com.amazon.kindle', 'Kindle'),
+    InstalledApp('com.google.android.keep', 'Keep Notes'),
+  ];
+
+  @override
+  Future<List<InstalledApp>> installedApps() async => launchableApps;
 
   @override
   Future<PauseResult> pauseSchedule(String id, String typed) async {

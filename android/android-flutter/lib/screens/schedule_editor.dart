@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../backend.dart';
 import '../schedule.dart';
 import '../schedule_format.dart';
 import '../sites.dart';
 import '../theme.dart';
 import '../ui.dart';
+import 'app_picker.dart';
 
 /// Picks a time of day; the system clock picker in the app, a stub in tests.
 typedef TimePicker = Future<TimeOfDay?> Function(
@@ -33,6 +35,7 @@ class ScheduleEditor extends StatefulWidget {
     required this.onSave,
     this.onDelete,
     this.pickTime = systemTimePicker,
+    this.loadApps,
   });
 
   final Schedule? initial;
@@ -43,12 +46,22 @@ class ScheduleEditor extends StatefulWidget {
   final Future<void> Function()? onDelete;
   final TimePicker pickTime;
 
+  /// The phone's apps, for "send me to an app". Without it that choice is
+  /// hidden.
+  final Future<List<InstalledApp>> Function()? loadApps;
+
   @override
   State<ScheduleEditor> createState() => _ScheduleEditorState();
 }
 
 class _ScheduleEditorState extends State<ScheduleEditor> {
   late final TextEditingController _name;
+  late final TextEditingController _message;
+
+  /// What happens when something blocked is opened.
+  late _ActionKind _action;
+  String? _redirectPackage;
+  String? _redirectLabel;
   late Set<int> _days;
   late int _start;
   late int _end;
@@ -78,11 +91,35 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     _end = _timedEnd;
     _sites = {...?initial?.sites};
     _name.addListener(() => setState(() {}));
+    final action = initial?.action ?? const BlockAction();
+    _action = switch (action) {
+      BlockAction() => _ActionKind.block,
+      MessageAction() => _ActionKind.message,
+      RedirectAction() => _ActionKind.redirect,
+    };
+    _message = TextEditingController(
+      text: action is MessageAction ? action.text : '',
+    );
+    _message.addListener(() => setState(() {}));
+    if (action is RedirectAction) {
+      _redirectPackage = action.packageName;
+      // Show the app's name once the list loads; its package until then.
+      widget.loadApps?.call().then((apps) {
+        if (!mounted) return;
+        final match = apps.where((a) => a.packageName == _redirectPackage);
+        setState(() {
+          _redirectLabel = match.isEmpty
+              ? '$_redirectPackage (not installed)'
+              : match.first.label;
+        });
+      }, onError: (_) {});
+    }
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _message.dispose();
     super.dispose();
   }
 
@@ -90,8 +127,21 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   /// the same from and to.
   bool get _sameTimes => !_allDay && _start == _end;
 
+  ScheduleAction get _scheduleAction => switch (_action) {
+    _ActionKind.block => const BlockAction(),
+    _ActionKind.message => MessageAction(_message.text.trim()),
+    _ActionKind.redirect => RedirectAction(_redirectPackage ?? ''),
+  };
+
+  bool get _actionReady => switch (_action) {
+    _ActionKind.block => true,
+    _ActionKind.message => _message.text.trim().isNotEmpty,
+    _ActionKind.redirect => _redirectPackage != null,
+  };
+
   bool get _valid =>
       !_sameTimes &&
+      _actionReady &&
       _days.isNotEmpty &&
       _sites.any((name) => sites.any((s) => s.name == name)) &&
       _name.text.trim().isNotEmpty;
@@ -165,6 +215,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         domains: fields.domains,
         apps: fields.apps,
         plan: plan,
+        action: _scheduleAction,
       );
     }
     return Schedule(
@@ -174,7 +225,23 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
       domains: fields.domains,
       apps: fields.apps,
       plan: plan,
+      action: _scheduleAction,
     );
+  }
+
+  Future<void> _pickApp() async {
+    final load = widget.loadApps;
+    if (load == null) return;
+    final app = await Navigator.of(context).push<InstalledApp>(
+      MaterialPageRoute(
+        builder: (_) => PushedPage(scroll: false, child: AppPicker(apps: load)),
+      ),
+    );
+    if (app == null || !mounted) return;
+    setState(() {
+      _redirectPackage = app.packageName;
+      _redirectLabel = app.label;
+    });
   }
 
   /// Runs save or delete with the buttons disabled meanwhile, so a double
@@ -334,6 +401,57 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                   ),
               ],
             ),
+            const Muted('when blocked'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (kind, label) in [
+                  (_ActionKind.block, 'block screen'),
+                  (_ActionKind.message, 'my message'),
+                  if (widget.loadApps != null ||
+                      _action == _ActionKind.redirect)
+                    (_ActionKind.redirect, 'send me to an app'),
+                ])
+                  SquareChip(
+                    label,
+                    key: Key('action-${kind.name}'),
+                    marker: false,
+                    exclusive: true,
+                    selected: _action == kind,
+                    onTap: () => setState(() => _action = kind),
+                  ),
+              ],
+            ),
+            if (_action == _ActionKind.message)
+              TextField(
+                key: const Key('action-message-text'),
+                controller: _message,
+                style: monoStyle(),
+                maxLength: 120,
+                decoration: InputDecoration(
+                  hintText: 'e.g. go to bed',
+                  hintStyle: monoStyle(color: AppColors.muted),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.all(10),
+                  enabledBorder: const OutlineInputBorder(
+                    borderRadius: BorderRadius.zero,
+                    borderSide: BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: const OutlineInputBorder(
+                    borderRadius: BorderRadius.zero,
+                    borderSide: BorderSide(color: AppColors.accent),
+                  ),
+                ),
+              ),
+            if (_action == _ActionKind.redirect)
+              AppButton(
+                _redirectPackage == null
+                    ? 'pick an app'
+                    : 'send me to ${_redirectLabel ?? _redirectPackage}',
+                key: const Key('pick-app'),
+                onPressed: widget.loadApps == null ? null : _pickApp,
+              ),
             if (!_valid)
               Muted(
                 _sameTimes
@@ -342,7 +460,11 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                     ? 'pick at least one day.'
                     : !_sites.any((name) => sites.any((s) => s.name == name))
                     ? 'pick at least one site.'
-                    : 'give it a name.',
+                    : _name.text.trim().isEmpty
+                    ? 'give it a name.'
+                    : _action == _ActionKind.message
+                    ? 'write your message.'
+                    : 'pick an app to send you to.',
               ),
             AppButton(
               'save',
@@ -459,3 +581,5 @@ class _TimeButton extends StatelessWidget {
     ),
   );
 }
+
+enum _ActionKind { block, message, redirect }
