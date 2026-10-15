@@ -31,6 +31,10 @@ class ScheduleError(ValueError):
 class LockedError(Exception):
     """A save would weaken a running schedule without the unlock password."""
 
+    def __init__(self, name: str):
+        super().__init__(f'"{name}" is running; changing it needs the unlock password')
+        self.name = name
+
 
 @dataclass(frozen=True)
 class ForPlan:
@@ -232,7 +236,7 @@ def list_to_json(schedules: List[Schedule]) -> str:
 def list_from_json(text: str) -> List[Schedule]:
     """Strict: malformed JSON or duplicate ids is a ScheduleError."""
     try:
-        data = _loads(text)
+        data = loads_untrusted(text)
     except (ValueError, RecursionError) as e:
         raise ScheduleError(f"malformed schedule list: {e!r}") from e
     if not isinstance(data, list):
@@ -251,7 +255,7 @@ def list_from_json_skipping_bad(text: Optional[str]) -> List[Schedule]:
     if not text or not text.strip():
         return []
     try:
-        data = _loads(text)
+        data = loads_untrusted(text)
     except (ValueError, RecursionError):
         return []
     if not isinstance(data, list):
@@ -297,9 +301,7 @@ def replace_all(
                 and set(running.apps) <= set(nxt.apps)
             )
             if not kept:
-                raise LockedError(
-                    f'"{running.name}" is running; changing it needs the unlock password'
-                )
+                raise LockedError(running.name)
     return incoming
 
 
@@ -330,7 +332,7 @@ def pause_json(
     if not password_ok:
         return WRONG_PASSWORD, None
     try:
-        items = _loads(stored_text or "[]")
+        items = loads_untrusted(stored_text or "[]")
     except (ValueError, RecursionError):
         return NOT_RUNNING, None
     if not isinstance(items, list):
@@ -378,7 +380,7 @@ def _bounded_int(digits: str) -> int:
     return int(digits)
 
 
-def _loads(text: str):
+def loads_untrusted(text: str):
     """json.loads for text a user (or anything running as them) wrote."""
     return json.loads(text, parse_int=_bounded_int)
 
