@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// The same fixture androidlib's ScheduleTest.kt parses, so the Dart and
 /// Kotlin JSON formats can't drift apart.
 List<Schedule> loadFixture() {
-  final text = File('../androidlib/src/test/resources/schedules.json')
+  final text = File('../../shared/schedules.json')
       .readAsStringSync();
   return [
     for (final item in jsonDecode(text) as List)
@@ -49,7 +49,7 @@ void main() {
   });
 
   test('toJson matches the fixture exactly', () {
-    final text = File('../androidlib/src/test/resources/schedules.json')
+    final text = File('../../shared/schedules.json')
         .readAsStringSync();
     final raw = jsonDecode(text) as List;
     final schedules = loadFixture();
