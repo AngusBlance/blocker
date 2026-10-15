@@ -2,6 +2,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from .schedule_helper import scheduled_hostnames
+
 HOSTS_FILE = Path("/etc/hosts")
 BEGIN_MARK = "# BLOCKER-BEGIN"
 END_MARK = "# BLOCKER-END"
@@ -18,6 +20,18 @@ class HostsBlocker:
     @property
     def blocked_urls(self) -> set:
         return self._parse_blocked_urls(self.raw_content)
+
+    @property
+    def scheduled_urls(self) -> set:
+        """Blocked by a running schedule: the section the root scheduler
+        helper writes (read-only here)."""
+        return scheduled_hostnames(self.raw_content)
+
+    @property
+    def all_blocked_urls(self) -> set:
+        """Everything blocked right now, manually or by a schedule."""
+        content = self.raw_content
+        return self._parse_blocked_urls(content) | scheduled_hostnames(content)
 
     @property
     def is_active(self) -> bool:

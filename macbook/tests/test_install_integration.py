@@ -66,6 +66,7 @@ def test_block_install_creates_a_real_app_bundle_and_self_cleaning_daemon(
         HOME=str(fake_home),
         BLOCKER_LAUNCH_AGENT_LABEL=label,
         BLOCKER_NO_OPEN_CHROME="1",
+        BLOCKER_NO_SCHEDULER="1",  # needs sudo
     )
 
     try:
@@ -114,6 +115,7 @@ def test_block_install_is_idempotent(editable_venv, tmp_path):
         HOME=str(fake_home),
         BLOCKER_LAUNCH_AGENT_LABEL=label,
         BLOCKER_NO_OPEN_CHROME="1",
+        BLOCKER_NO_SCHEDULER="1",  # needs sudo
     )
 
     try:

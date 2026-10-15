@@ -1,14 +1,37 @@
 import os
 import signal
 import threading
+from pathlib import Path
 
+from .core import HOSTS_FILE
 from .ws_server import DEFAULT_WS_PORT, SyncServer
 
+# Schedules start and end without anyone touching the TUI (the root helper
+# rewrites /etc/hosts), so watch the file and tell the extension.
+POLL_SECONDS = 5
 
-def run(server: SyncServer, stop: threading.Event) -> None:
+
+def _mtime(path: Path):
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def run(
+    server: SyncServer,
+    stop: threading.Event,
+    hosts: Path = HOSTS_FILE,
+    poll: float = POLL_SECONDS,
+) -> None:
     server.start()
     try:
-        stop.wait()
+        seen = _mtime(hosts)
+        while not stop.wait(poll):
+            now = _mtime(hosts)
+            if now != seen:
+                seen = now
+                server.notify_change()
     finally:
         server.stop()
 

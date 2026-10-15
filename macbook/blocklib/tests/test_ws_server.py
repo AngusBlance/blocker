@@ -27,7 +27,7 @@ def test_ws_server_sends_current_state_on_connect(running_ws_server):
 
     body = asyncio.run(check())
     assert "blocked" in body
-    assert set(body["blocked"]) == HostsBlocker().blocked_urls
+    assert set(body["blocked"]) == HostsBlocker().all_blocked_urls
 
 
 def test_ws_server_pushes_update_promptly_on_notify_change(running_ws_server):

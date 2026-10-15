@@ -43,7 +43,7 @@ def test_blocked_domains_matches_real_hosts_blocker_state(running_server):
     from blocklib.core import HostsBlocker
 
     _, body = get(running_server, "/blocked-domains")
-    assert set(body["blocked"]) == HostsBlocker().blocked_urls
+    assert set(body["blocked"]) == HostsBlocker().all_blocked_urls
 
 
 def test_unknown_path_returns_404(running_server):

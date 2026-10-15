@@ -12,7 +12,7 @@ class BlockListHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
-        blocked = HostsBlocker().blocked_urls
+        blocked = HostsBlocker().all_blocked_urls
         body = json.dumps({"blocked": sorted(blocked)}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
