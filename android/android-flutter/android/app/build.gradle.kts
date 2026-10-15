@@ -13,7 +13,8 @@ android {
     sourceSets["main"].res.srcDir("../../../androidlib/src/main/res")
     // androidlib's JVM unit tests (./gradlew :app:testDebugUnitTest).
     sourceSets["test"].java.srcDir("../../../androidlib/src/test/java")
-    sourceSets["test"].resources.srcDir("../../../androidlib/src/test/resources")
+    // The schedules JSON fixture shared with the Dart and Python tests.
+    sourceSets["test"].resources.srcDir("../../../../shared")
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

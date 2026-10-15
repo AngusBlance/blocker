@@ -71,6 +71,11 @@ data class Schedule(
 
           else -> today.atTime(end / 60, end % 60)
         }
+        // An end skipped by a spring-forward gap is when the clocks jump;
+        // covers() is already false from then.
+        now.zone.rules.getTransition(endsAt)?.takeIf { it.isGap }?.let {
+          return it.instant.atZone(now.zone)
+        }
         // In the autumn overlap a clock time happens twice; prefer the offset
         // in force now, and take the later one if that would already be past.
         val zoned = ZonedDateTime.ofLocal(endsAt, now.zone, now.offset)

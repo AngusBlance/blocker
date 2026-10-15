@@ -177,6 +177,17 @@ class ScheduleRulesTest {
     )
   }
 
+  @Test
+  fun `occurrence end skipped by spring forward is when the clocks jump`() {
+    // 2027-03-28: London jumps from 01:00 GMT to 02:00 BST; 01:30 never happens.
+    val sunday = every(SUNDAY, start = 0, end = 90)
+    val halfPastMidnight = Instant.parse("2027-03-28T00:30:00Z").atZone(london)
+    assertEquals(
+      Instant.parse("2027-03-28T01:00:00Z"),
+      sunday.occurrenceEnd(halfPastMidnight)!!.toInstant(),
+    )
+  }
+
   // Status
 
   @Test
