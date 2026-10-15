@@ -260,6 +260,17 @@ class BlockerApp(App):
     #editor-dialog Input.time {
         width: 7;
     }
+    #editor-dialog Checkbox.site {
+        width: 20;
+    }
+    /* Moving onto a text cell highlights it; typing in it looks different. */
+    #editor-dialog Field:focus {
+        background: $accent 35%;
+    }
+    #editor-dialog Field.-editing {
+        background: $boost;
+        text-style: underline;
+    }
     #summary {
         margin-top: 1;
         color: $accent;

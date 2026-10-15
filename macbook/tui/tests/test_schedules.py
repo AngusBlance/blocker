@@ -592,62 +592,6 @@ async def test_the_tick_tells_the_extension_when_hosts_changes(
         assert server.notified == 1
 
 
-async def test_tab_and_enter_move_from_the_name_to_the_days(stored):
-    app = BlockerApp()
-    async with app.run_test(size=(110, 50)) as pilot:
-        await open_schedules(pilot)
-        await pilot.press("enter")  # edit Work
-        editor = app.screen
-        await pilot.press("k")  # up to the name
-        assert editor.focused.id == "schedule-name"
-        await pilot.press("enter")  # moves on, doesn't save
-        assert isinstance(app.screen, ScheduleEditor)
-        assert editor.focused.id == "day-1"
-        await pilot.press("tab", "tab", "tab", "tab", "tab")
-        assert editor.focused.id == "day-6"
-        await pilot.press("space")  # tick Saturday
-        assert 6 in editor._days()
-        await pilot.press("shift+tab")
-        assert editor.focused.id == "day-5"
-        await pilot.press("ctrl+s")  # Work is running: a new plan needs the password
-        assert isinstance(app.screen, UnlockModal)
-        await type_password(app, pilot)
-        assert saved(stored)["work"].plan.days == frozenset({1, 2, 3, 4, 5, 6})
-
-
-async def test_vim_keys_move_around_the_form(stored):
-    app = BlockerApp()
-    async with app.run_test(size=(110, 50)) as pilot:
-        await open_schedules(pilot)
-        await pilot.press("j", "j", "enter")  # edit Gym (Saturday, off)
-        editor = app.screen
-        assert editor.focused.id == "day-1"  # editing starts on the days
-        await pilot.press("k")
-        assert editor.focused.id == "schedule-name"
-        await pilot.press("h", "j")  # in the name, letters type
-        assert editor.query_one("#schedule-name", Input).value == "Gymhj"
-        await pilot.press("down")  # the arrows leave a text box
-        assert editor.focused.id == "day-1"
-        await pilot.press("l", "l", "x")  # tick Wednesday
-        assert editor._days() == {3, 6}
-        await pilot.press("l", "l", "l", "l", "l", "l")  # stops at the row's end
-        assert editor.focused.id == "day-7"
-        await pilot.press("j")
-        assert editor.focused.id == "days-weekends"  # same column, clamped
-        await pilot.press("k", "h")
-        assert editor.focused.id == "day-6"
-        await pilot.press("j", "j", "j")  # shortcuts, times, first site
-        assert editor.focused.id == "site-0"
-        await pilot.press("space", "j")
-        assert editor.focused.id == "site-1"
-        await pilot.press("k", "k")
-        assert editor.focused.id == "all-day"  # the times row, as far right as it goes
-        await pilot.press("h")
-        assert editor.focused.id == "time-to"
-        await pilot.press("j")  # in a text box j types
-        assert editor.query_one("#time-to", Input).value.endswith("j")
-
-
 UNKNOWN_SITE = replace(
     WORK, sites=("YouTube", "Reddit"), domains=("youtube.com", "reddit.com")
 )
@@ -724,15 +668,113 @@ async def test_a_problem_is_visible_on_a_small_terminal(stored):
         )
 
 
-async def test_typing_app_keys_into_the_name_only_types(stored):
-    app = BlockerApp()
-    async with app.run_test(size=(110, 50)) as pilot:
-        await open_schedules(pilot)
-        await pilot.press("a", *"jktadeqhlb")
-        assert isinstance(app.screen, ScheduleEditor)
-        assert app.screen.query_one("#schedule-name", Input).value == "jktadeqhlb"
-
-
 def test_unicode_digits_arent_times():
     assert parse_time("٠٩:٠٠") is None
     assert parse_time(" 9:00 ") == 540
+
+
+async def test_letters_move_until_enter_starts_typing(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("a")
+        editor = app.screen
+        name = editor.query_one("#schedule-name", Input)
+        assert editor.focused is name and not name.editing
+        await pilot.press("j", "k")  # moving: down to Monday and back
+        assert editor.focused is name and name.value == ""
+        await pilot.press("enter", *"jk lunch")
+        assert name.editing and name.value == "jk lunch"
+        await pilot.press("enter")  # done: back to moving, still here
+        assert editor.focused is name and not name.editing
+        await pilot.press("j")
+        assert editor.focused.id == "day-1"
+        await pilot.press("backspace", "q", "d", "t")  # nothing types or quits
+        assert name.value == "jk lunch" and isinstance(app.screen, ScheduleEditor)
+
+
+async def test_esc_stops_typing_then_closes(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("enter")  # edit Work
+        editor = app.screen
+        name = editor.query_one("#schedule-name", Input)
+        await pilot.press("enter", "x")
+        await pilot.press("escape")
+        assert not name.editing and name.value == "Workx"
+        assert isinstance(app.screen, ScheduleEditor)
+        await pilot.press("escape")
+        assert not isinstance(app.screen, ScheduleEditor)
+        assert saved(stored)["work"].name == "Work"  # closed without saving
+
+
+async def test_hjkl_go_to_the_cell_on_screen_in_that_direction(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "j", "enter")  # edit Gym
+        editor = app.screen
+
+        def at():
+            return editor.focused.id
+
+        await pilot.press("j")
+        assert at() == "day-1"
+        await pilot.press("l", "l", "l", "l", "l", "l", "l")  # stops at the end
+        assert at() == "day-7"
+        await pilot.press("j")
+        assert at() == "days-weekends"  # the one under Sunday
+        await pilot.press("k")
+        assert at() == "day-7"  # back where it was
+        await pilot.press("h", "h", "h", "j")
+        assert at() == "days-every-day"  # under Thursday
+        await pilot.press("j")
+        assert at() in ("time-to", "time-from")  # the time under it
+        await pilot.press("h")
+        assert at() == "time-from"
+        await pilot.press("j")
+        assert at() == "site-0"
+        await pilot.press("l", "j")
+        assert at() == "site-4"  # the grid of sites: second column, second row
+        await pilot.press("k", "k", "l", "l")
+        assert at() == "all-day"
+
+
+async def test_editing_a_time_with_enter(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "enter")  # edit Evening
+        editor = app.screen
+        to = editor.query_one("#time-to", Input)
+        to.focus()
+        await pilot.pause()
+        await pilot.press("j")  # moving: goes down, doesn't type
+        assert to.value == "23:00"
+        to.focus()
+        await pilot.pause()
+        await pilot.press("enter", *["backspace"] * 5, *"22:30", "enter")
+        assert to.value == "22:30" and not to.editing
+        await pilot.press("ctrl+s")
+        assert saved(stored)["evening"].plan.end == 22 * 60 + 30
+
+
+async def test_a_whole_schedule_with_only_the_keyboard(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("a")
+        await pilot.press("enter", *"Reading", "enter")  # name
+        await pilot.press("j", "l", "l", "l", "l", "l", "x", "l", "x")  # + Sat, Sun
+        await pilot.press("j", "j")  # weekends, then "all day" under it
+        assert app.screen.focused.id == "all-day"
+        await pilot.press("h", "h")  # along to "from"
+        await pilot.press("enter", *["backspace"] * 5, *"19:00", "enter")
+        await pilot.press("l", "enter", *["backspace"] * 5, *"21:30", "enter")
+        await pilot.press("j", "h", "x")  # first site, Netflix
+        await pilot.press("ctrl+s")
+        added = schedule_store.load(stored)[-1]
+        assert added.name == "Reading"
+        assert added.plan == EveryPlan(frozenset(range(1, 8)), 19 * 60, 21 * 60 + 30)
+        assert added.sites == ("Netflix",)

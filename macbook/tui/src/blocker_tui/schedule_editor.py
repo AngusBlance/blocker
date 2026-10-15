@@ -1,8 +1,8 @@
 """The schedule editor: pick the days, the from–to times and the sites a
 schedule blocks. The same fields and checks as the Android editor
-(schedule_editor.dart). h/j/k/l (or arrows) move around the form, x or space
-ticks a box, enter presses a button (in a text box it moves on, like tab),
-ctrl+s saves, esc cancels."""
+(schedule_editor.dart), moved around vim style: h/j/k/l between cells, enter
+to type in a text cell (enter or esc to stop), tick a box or press a button,
+ctrl+s saves, esc closes."""
 
 import re
 from dataclasses import replace
@@ -11,6 +11,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
+from textual.message import Message
+from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Static
@@ -96,11 +98,78 @@ def build(
     return Schedule(id=new_id, apps=(), action=Block(), **fields), ""
 
 
+class Field(Input):
+    """A text box you move onto like any other cell, then press enter to
+    type in (like vim's insert mode). Enter or esc goes back to moving."""
+
+    editing: reactive[bool] = reactive(False)
+
+    class ModeChanged(Message):
+        def __init__(self, field: "Field") -> None:
+            super().__init__()
+            self.field = field
+
+    def check_consume_key(self, key: str, character: Optional[str]) -> bool:
+        return self.editing and super().check_consume_key(key, character)
+
+    def check_action(self, action: str, parameters: tuple) -> Optional[bool]:
+        # Outside editing its own keys (arrows, backspace, enter...) are off,
+        # so they reach the editor, which moves.
+        return True if self.editing else False
+
+    async def _on_key(self, event: events.Key) -> None:
+        # Textual then runs Input's own key handler (which types) unless
+        # prevent_default() is called; stop() keeps it from the editor.
+        if self.editing:
+            if event.key == "escape":
+                self.editing = False
+                event.stop()
+                event.prevent_default()
+            return
+        event.prevent_default()  # moving: never type
+        if event.key == "enter":
+            self.editing = True
+            event.stop()
+
+    async def action_submit(self) -> None:
+        await super().action_submit()
+        self.editing = False
+
+    def watch_editing(self, editing: bool) -> None:
+        self.set_class(editing, "-editing")
+        if editing:
+            self.cursor_position = len(self.value)
+            self._restart_blink()
+        else:
+            self._pause_blink()
+            self._cursor_visible = False
+        self.post_message(self.ModeChanged(self))
+
+    def _on_focus(self, event: events.Focus) -> None:
+        super()._on_focus(event)
+        if not self.editing:
+            self._pause_blink()
+            self._cursor_visible = False
+
+    def _on_blur(self, event: events.Blur) -> None:
+        self.editing = False
+        super()._on_blur(event)
+
+
+SITES_PER_ROW = 3
+KEYS_MOVING = "hjkl move · enter edit/tick/press · ctrl+s save · esc close"
+KEYS_EDITING = "-- EDITING -- type, then enter or esc to go back to moving"
+
+
 class ScheduleEditor(ModalScreen):
-    """Dismisses with the finished Schedule, or None if cancelled."""
+    """The form is a grid of cells. h/j/k/l (or the arrows) move between
+    them: left and right along a row, up and down to the cell physically
+    above or below. Enter edits a text cell, ticks a box or presses a
+    button; x or space also ticks. ctrl+s saves from anywhere, esc closes
+    (or, while typing, stops typing)."""
 
     BINDINGS = [
-        ("escape", "cancel", "Cancel"),
+        ("escape", "cancel", "Close"),
         ("ctrl+s", "save", "Save"),
     ]
 
@@ -117,9 +186,10 @@ class ScheduleEditor(ModalScreen):
         super().__init__()
         self.initial = initial
         self.on_save = on_save
-        self._want_col = 0
         self.new_id = new_id()
         self.site_names = list(site_domains())
+        self._want_x: Optional[float] = None
+        self._last_vertical: Optional[Widget] = None
 
     def compose(self) -> ComposeResult:
         s = self.initial
@@ -138,12 +208,12 @@ class ScheduleEditor(ModalScreen):
                     for i, p in enumerate(sched_ui.PRESETS):
                         yield Button(p.label, id=f"preset-{i}", compact=True)
             yield Static("name", classes="label")
-            yield Input(
+            yield Field(
                 s.name if s else "",
-                placeholder="e.g. work",
+                placeholder="enter to type a name",
                 id="schedule-name",
                 compact=True,
-                select_on_focus=False,  # a stray key mustn't replace the name
+                select_on_focus=False,
             )
             yield Static("days", classes="label")
             with Horizontal(classes="row"):
@@ -157,39 +227,46 @@ class ScheduleEditor(ModalScreen):
             yield Static("time", classes="label")
             with Horizontal(classes="row"):
                 yield Static("from ", classes="inline")
-                yield Input(
+                yield Field(
                     sched_ui.format_minute(plan.start if not all_day else 540),
                     id="time-from",
                     classes="time",
                     compact=True,
+                    select_on_focus=False,
                 )
                 yield Static(" to ", classes="inline")
-                yield Input(
+                yield Field(
                     sched_ui.format_minute(plan.end if not all_day else 1020),
                     id="time-to",
                     classes="time",
                     compact=True,
+                    select_on_focus=False,
                 )
                 yield Checkbox("all day", all_day, id="all-day", compact=True)
             yield Static("", id="summary")
             yield Static("sites", classes="label")
             picked = set(s.sites) if s else set()
-            for i, name in enumerate(self.site_names):
-                yield Checkbox(name, name in picked, id=f"site-{i}", compact=True)
+            for start in range(0, len(self.site_names), SITES_PER_ROW):
+                with Horizontal(classes="row"):
+                    for i in range(
+                        start, min(start + SITES_PER_ROW, len(self.site_names))
+                    ):
+                        name = self.site_names[i]
+                        yield Checkbox(
+                            name,
+                            name in picked,
+                            id=f"site-{i}",
+                            classes="site",
+                            compact=True,
+                        )
             yield Static("", id="editor-error")
             with Horizontal(classes="row"):
                 yield Button("save", variant="primary", id="save", compact=True)
                 yield Button("cancel", id="cancel", compact=True)
-            yield Static(
-                "h j k l move · x ticks · enter presses · ctrl+s saves · esc cancels",
-                id="editor-keys",
-            )
+            yield Static(KEYS_MOVING, id="editor-keys")
 
     def on_mount(self) -> None:
-        # A new schedule starts with typing its name; an existing one on the
-        # days, ready to move around with h/j/k/l.
-        first = "#schedule-name" if self.initial is None else "#day-1"
-        self.query_one(first).focus()
+        self.query_one("#schedule-name").focus()
         self._update()
 
     # Reading the form
@@ -241,8 +318,7 @@ class ScheduleEditor(ModalScreen):
         self.query_one("#summary", Static).update(summary)
         self.query_one("#editor-error", Static).update(problem)
 
-    # Moving around: vim keys (and arrows) on a grid of the form's rows.
-    # In a text box letters type, so only the up and down arrows move.
+    # Moving around
 
     _MOVES = {
         "h": (0, -1),
@@ -256,6 +332,7 @@ class ScheduleEditor(ModalScreen):
     }
 
     def _grid(self) -> List[List[Widget]]:
+        """The cells, row by row as they appear on screen."""
         rows: List[List[str]] = []
         if self.initial is None:
             rows.append([f"preset-{i}" for i in range(len(sched_ui.PRESETS))])
@@ -264,7 +341,15 @@ class ScheduleEditor(ModalScreen):
             [f"day-{d}" for d in range(1, 8)],
             [f"days-{key}" for key in DAY_SHORTCUTS],
             ["time-from", "time-to", "all-day"],
-            *[[f"site-{i}"] for i in range(len(self.site_names))],
+            *[
+                [
+                    f"site-{i}"
+                    for i in range(
+                        start, min(start + SITES_PER_ROW, len(self.site_names))
+                    )
+                ]
+                for start in range(0, len(self.site_names), SITES_PER_ROW)
+            ],
             ["save", "cancel"],
         ]
         grid = []
@@ -274,6 +359,13 @@ class ScheduleEditor(ModalScreen):
             if widgets:
                 grid.append(widgets)
         return grid
+
+    @staticmethod
+    def _centre(widget: Widget) -> float:
+        """Where a cell sits across the page. A wide cell (the name box)
+        counts from its left, so going down from it lands on the first day."""
+        region = widget.virtual_region
+        return region.x + min(region.width / 2, 3)
 
     def _move(self, rows: int, cols: int) -> None:
         grid = self._grid()
@@ -288,22 +380,27 @@ class ScheduleEditor(ModalScreen):
         )
         if here is None:
             target = grid[0][0]
+        elif rows:
+            r, c = here
+            # Up and down go to the cell physically above or below, aiming
+            # for where you were across the page (like vim's column memory).
+            if self._last_vertical is not self.focused or self._want_x is None:
+                self._want_x = self._centre(grid[r][c])
+            r = min(max(r + rows, 0), len(grid) - 1)
+            target = min(grid[r], key=lambda w: abs(self._centre(w) - self._want_x))
+            self._last_vertical = target
         else:
             r, c = here
-            if rows:
-                # Like vim: up and down aim for the column you were last in.
-                r = min(max(r + rows, 0), len(grid) - 1)
-                c = min(self._want_col, len(grid[r]) - 1)
-            else:
-                c = min(max(c + cols, 0), len(grid[r]) - 1)
-                self._want_col = c
-            target = grid[r][c]
+            target = grid[r][min(max(c + cols, 0), len(grid[r]) - 1)]
+            self._want_x = None
         target.focus()
         target.scroll_visible()
 
+    def _editing(self) -> bool:
+        return isinstance(self.focused, Field) and self.focused.editing
+
     def on_key(self, event: events.Key) -> None:
-        typing = isinstance(self.focused, Input)
-        if typing and event.key not in ("up", "down"):
+        if self._editing():
             return
         if event.key in self._MOVES:
             self._move(*self._MOVES[event.key])
@@ -316,22 +413,22 @@ class ScheduleEditor(ModalScreen):
 
     # Events
 
+    def on_field_mode_changed(self, event: Field.ModeChanged) -> None:
+        keys = KEYS_EDITING if event.field.editing else KEYS_MOVING
+        self.query_one("#editor-keys", Static).update(keys)
+
     def on_input_changed(self, event: Input.Changed) -> None:
         self._update()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         self._update()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        # Enter in a text box moves on, like tab; ctrl+s saves.
-        self.focus_next()
-
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button = event.button.id or ""
         if button == "save":
             self.action_save()
         elif button == "cancel":
-            self.action_cancel()
+            self.dismiss(None)
         elif button.startswith("days-"):
             self._set_days(DAY_SHORTCUTS[button[len("days-") :]])
         elif button.startswith("preset-"):
@@ -354,6 +451,8 @@ class ScheduleEditor(ModalScreen):
             name.value = preset.label
 
     def action_save(self) -> None:
+        if self._editing():
+            self.focused.editing = False
         schedule, problem = self._result()
         if schedule is None:
             error = self.query_one("#editor-error", Static)
@@ -367,4 +466,8 @@ class ScheduleEditor(ModalScreen):
             self.on_save(schedule, lambda: self.dismiss(schedule))
 
     def action_cancel(self) -> None:
+        # Esc while typing only stops typing.
+        if self._editing():
+            self.focused.editing = False
+            return
         self.dismiss(None)
