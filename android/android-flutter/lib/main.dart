@@ -24,16 +24,20 @@ const _tabs = [
 ];
 
 class BlockerApp extends StatefulWidget {
-  const BlockerApp({super.key, required this.backend});
+  const BlockerApp({super.key, required this.backend, this.clock});
 
   final Backend backend;
+
+  /// The current time; swapped for a fixed clock in tests.
+  final DateTime Function()? clock;
 
   @override
   State<BlockerApp> createState() => _BlockerAppState();
 }
 
 class _BlockerAppState extends State<BlockerApp> {
-  late final Blocker blocker = Blocker(widget.backend)..load();
+  late final Blocker blocker = Blocker(widget.backend, clock: widget.clock)
+    ..load();
   Tab tab = Tab.home;
   Site? pendingSite;
 

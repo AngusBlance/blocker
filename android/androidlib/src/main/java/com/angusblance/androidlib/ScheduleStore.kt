@@ -36,6 +36,10 @@ class ScheduleStore(context: Context) {
     return result
   }
 
+  // For the UI: which schedules are running and when each ends.
+  fun statusJson(now: ZonedDateTime = ZonedDateTime.now()): String =
+    ScheduleRules.status(schedules, now)
+
   fun activeBlocks(now: ZonedDateTime = ZonedDateTime.now()): ActiveBlocks =
     ActiveBlocks.compute(blockStore.blockedDomains, blockStore.blockedApps, schedules, now)
 

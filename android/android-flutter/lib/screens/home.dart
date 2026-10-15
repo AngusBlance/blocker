@@ -4,6 +4,7 @@ import '../blocker.dart';
 import '../sites.dart';
 import '../theme.dart';
 import '../ui.dart';
+import 'block_now_sheet.dart';
 import 'setup_steps.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -15,6 +16,9 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocked = blocker.blockedSites;
+    final scheduled = blocker.scheduledSites;
+    final until = blocker.scheduledUntil;
+    final anything = blocked.isNotEmpty || scheduled.isNotEmpty;
     return Column(
       children: [
         if (!blocker.serviceEnabled) ...[
@@ -35,11 +39,16 @@ class HomeScreen extends StatelessWidget {
           children: [
             Field(
               'state',
-              blocked.isNotEmpty ? 'BLOCKED' : 'not blocked',
-              color: blocked.isNotEmpty
-                  ? AppColors.accent
-                  : AppColors.foreground,
+              anything ? 'BLOCKED' : 'not blocked',
+              color: anything ? AppColors.accent : AppColors.foreground,
             ),
+            if (until != null)
+              Field(
+                'now',
+                'blocking ${scheduled.length} ${scheduled.length == 1 ? 'site' : 'sites'}'
+                    ' · ends ${formatUntil(until, blocker.now())}',
+                color: AppColors.accent,
+              ),
             Field(
               'service',
               blocker.serviceEnabled ? 'running' : 'NOT RUNNING',
@@ -51,7 +60,23 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        AppButton('choose sites', primary: true, onPressed: goToSites),
+        AppButton(
+          'start a block',
+          key: const Key('open-block-now'),
+          primary: true,
+          onPressed: () => showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: AppColors.background,
+            shape: const RoundedRectangleBorder(
+              side: BorderSide(color: AppColors.accent),
+            ),
+            builder: (_) =>
+                BlockNowSheet(now: blocker.now, onStart: blocker.blockNow),
+          ),
+        ),
+        const SizedBox(height: 12),
+        AppButton('choose sites', onPressed: goToSites),
       ],
     );
   }

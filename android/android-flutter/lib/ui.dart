@@ -145,3 +145,78 @@ class AppButton extends StatelessWidget {
     );
   }
 }
+
+/// A square toggle chip in the TUI style: `(x) label` with the accent border
+/// when selected, `( ) label` when not. Used for picking sites, durations and
+/// days.
+class SquareChip extends StatelessWidget {
+  const SquareChip(
+    this.label, {
+    super.key,
+    required this.selected,
+    required this.onTap,
+    this.marker = true,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// Show the `(x)` / `( )` marker; off for single-choice chips like
+  /// durations, where the border alone says which is picked.
+  final bool marker;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? AppColors.surface : AppColors.background,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(
+            color: selected ? AppColors.accent : AppColors.border,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Text(
+              marker ? '${selected ? '(x)' : '( )'} $label' : label,
+              style: monoStyle(
+                color: selected ? AppColors.accent : AppColors.foreground,
+                bold: selected,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "1h", "45m", "1h 30m".
+String formatDuration(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes % 60;
+  if (h == 0) return '${m}m';
+  if (m == 0) return '${h}h';
+  return '${h}h ${m}m';
+}
+
+/// 24-hour "07:00".
+String formatClock(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// When something ends, relative to [now]: "17:00", "tomorrow 07:00" or
+/// "Mon 07:00".
+String formatUntil(DateTime until, DateTime now) {
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(until.year, until.month, until.day);
+  final days = day.difference(today).inDays;
+  if (days <= 0) return formatClock(until);
+  if (days == 1) return 'tomorrow ${formatClock(until)}';
+  const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return '${names[until.weekday - 1]} ${formatClock(until)}';
+}

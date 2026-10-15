@@ -66,6 +66,8 @@ class MainActivity : FlutterActivity() {
           result.error("bad_schedules", e.message, null)
         }
 
+        "scheduleStatus" -> result.success(schedules.statusJson())
+
         // "paused", "wrong_password" or "not_running".
         "pauseSchedule" -> result.success(
           schedules.pause(

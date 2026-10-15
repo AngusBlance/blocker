@@ -2,6 +2,7 @@ package com.angusblance.androidlib
 
 import org.json.JSONArray
 import org.json.JSONException
+import org.json.JSONObject
 import java.time.ZonedDateTime
 
 // The rules for changing stored schedules, as pure functions on their JSON so
@@ -86,4 +87,12 @@ object ScheduleRules {
     }
     return PauseResult.NOT_RUNNING to null
   }
+
+  // Each running schedule's id and when its current occurrence ends, as JSON
+  // [{"id": "...", "until": epochMillis}], in list order.
+  fun status(schedules: List<Schedule>, now: ZonedDateTime): String = JSONArray(
+    schedules.mapNotNull { s ->
+      s.activeUntil(now)?.let { JSONObject().put("id", s.id).put("until", it) }
+    },
+  ).toString()
 }

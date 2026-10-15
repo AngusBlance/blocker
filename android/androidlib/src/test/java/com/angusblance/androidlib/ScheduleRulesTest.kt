@@ -176,4 +176,23 @@ class ScheduleRulesTest {
       sunday.occurrenceEnd(firstQuarterPast)!!.toInstant(),
     )
   }
+
+  // Status
+
+  @Test
+  fun `status lists running schedules with when they end`() {
+    val start = at(12, "09:30").toInstant().toEpochMilli()
+    val focus = schedule("focus", Schedule.Plan.For(start, start + 3_600_000))
+    val status = JSONArray(ScheduleRules.status(listOf(work, evening, focus), monday10))
+    assertEquals(2, status.length())
+    assertEquals("work", status.getJSONObject(0).getString("id"))
+    assertEquals(
+      at(12, "17:00").toInstant().toEpochMilli(),
+      status.getJSONObject(0).getLong("until"),
+    )
+    assertEquals("focus", status.getJSONObject(1).getString("id"))
+    assertEquals(start + 3_600_000, status.getJSONObject(1).getLong("until"))
+    val paused = work.copy(pausedUntil = at(12, "17:00").toInstant().toEpochMilli())
+    assertEquals("[]", ScheduleRules.status(listOf(paused), monday10))
+  }
 }
