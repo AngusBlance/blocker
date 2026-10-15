@@ -83,7 +83,8 @@ class FakeBackend implements Backend {
             kept != null &&
             kept.enabled &&
             kept.plan == running.plan &&
-            kept.action == running.action &&
+            (kept.action == running.action ||
+                kept.action == const BlockAction()) &&
             running.domains.every(kept.domains.contains) &&
             running.apps.every(kept.apps.contains);
         if (!ok) throw ScheduleLockedException('"${running.name}" is running');

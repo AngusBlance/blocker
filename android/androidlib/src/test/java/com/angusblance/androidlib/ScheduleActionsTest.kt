@@ -102,13 +102,11 @@ class ScheduleActionsTest {
   }
 
   @Test
-  fun `redirect opens the app, but blocks if it's missing or is the blocked app itself`() {
+  fun `redirect opens the app, but blocks if it's missing or is the app in front`() {
     val toKindle = Action.Redirect("com.amazon.kindle")
     assertEquals(
-      BlockResponse.OpenApp("com.amazon.kindle"),
-      BlockResponse.decide(toKindle, "TikTok") {
-        true
-      },
+      BlockResponse.OpenApp("com.amazon.kindle", "TikTok", "Read instead"),
+      BlockResponse.decide(toKindle, "TikTok", "Read instead") { true },
     )
     assertEquals(
       BlockResponse.BlockScreen("TikTok"),
@@ -120,5 +118,58 @@ class ScheduleActionsTest {
       BlockResponse.BlockScreen("Kindle"),
       BlockResponse.decide(toKindle, "Kindle", blockedApp = "com.amazon.kindle") { true },
     )
+  }
+
+  @Test
+  fun `redirecting a site to the browser it's open in blocks instead`() {
+    val toChrome = Action.Redirect("com.android.chrome")
+    assertEquals(
+      BlockResponse.BlockScreen("youtube.com"),
+      BlockResponse.decide(toChrome, "youtube.com", blockedApp = "com.android.chrome") { true },
+    )
+  }
+
+  @Test
+  fun `two schedules redirecting to each other can't bounce forever`() {
+    // TikTok -> Instagram and Instagram -> TikTok: the target is blocked too,
+    // so each shows the block screen instead of opening the other.
+    val toInsta =
+      schedule(
+        "a",
+        Action.Redirect("com.instagram.android"),
+        emptyList(),
+        listOf("com.zhiliaoapp.musically"),
+      )
+    val toTikTok =
+      schedule(
+        "b",
+        Action.Redirect("com.zhiliaoapp.musically"),
+        emptyList(),
+        listOf("com.instagram.android"),
+      )
+    val blocks = blocks(toInsta, toTikTok)
+    for (app in listOf("com.zhiliaoapp.musically", "com.instagram.android")) {
+      val s = blocks.scheduleFor(app = app)!!
+      val response = BlockResponse.decide(s.action, app, s.name, app, {
+        it in blocks.apps
+      }) { true }
+      assertEquals(BlockResponse.BlockScreen(app), response)
+    }
+  }
+
+  @Test
+  fun `long messages are cut short`() {
+    val long = "x".repeat(500)
+    val response = BlockResponse.decide(Action.Message(long), "x") {
+      true
+    } as BlockResponse.BlockScreen
+    assertEquals(BlockResponse.MAX_MESSAGE, response.message!!.length)
+    assertEquals('…', response.message!!.last())
+  }
+
+  @Test
+  fun `the schedule whose action applies is found, for the explanation`() {
+    assertEquals("kindle", blocks(plain, kindle).scheduleFor(host = "tiktok.com")!!.id)
+    assertEquals(null, blocks(plain).scheduleFor(host = "youtube.com"))
   }
 }

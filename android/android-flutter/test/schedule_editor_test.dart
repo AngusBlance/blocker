@@ -1,5 +1,6 @@
 import 'package:blocker_flutter/backend.dart';
 import 'package:blocker_flutter/schedule.dart';
+import 'package:blocker_flutter/screens/app_picker.dart';
 import 'package:blocker_flutter/screens/schedule_editor.dart';
 import 'package:blocker_flutter/sites.dart';
 import 'package:blocker_flutter/theme.dart';
@@ -321,5 +322,65 @@ void main() {
     await pumpEditor(tester);
     expect(find.byKey(const Key('action-redirect')), findsNothing);
     expect(find.byKey(const Key('action-message')), findsOneWidget);
+  });
+
+  testWidgets(
+    'switching between options keeps the message and the picked app',
+    (tester) async {
+      final h = await pumpEditor(tester, withApps: true);
+      await namedYouTubeSchedule(tester);
+      await tapKey(tester, 'action-message');
+      await tester.enterText(
+        find.byKey(const Key('action-message-text')),
+        'read a book',
+      );
+      await tapKey(tester, 'action-redirect');
+      await tapKey(tester, 'pick-app');
+      await tapKey(tester, 'app-com.duolingo');
+      await tapKey(tester, 'action-message');
+      expect(find.text('read a book'), findsOneWidget);
+      await tapKey(tester, 'action-redirect');
+      expect(find.text('send me to Duolingo'), findsOneWidget);
+      await tapKey(tester, 'save-schedule');
+      expect(h.saved!.action, const RedirectAction('com.duolingo'));
+    },
+  );
+
+  testWidgets('a redirect to an app that is no longer installed says so', (
+    tester,
+  ) async {
+    final existing = Schedule(
+      id: 'r',
+      name: 'Read instead',
+      sites: ['TikTok'],
+      domains: ['tiktok.com'],
+      apps: [],
+      plan: EveryPlan(days: {1}, start: 1200, end: 1320),
+      action: const RedirectAction('com.gone.app'),
+    );
+    await pumpEditor(tester, initial: existing, withApps: true);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('send me to com.gone.app (not installed)'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('if the app list fails the picker says so', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.6;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppPicker(apps: () async => throw Exception('nope')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text("couldn't list your apps. go back and try again."),
+      findsOneWidget,
+    );
   });
 }

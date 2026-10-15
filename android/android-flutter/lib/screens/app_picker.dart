@@ -4,8 +4,9 @@ import '../backend.dart';
 import '../theme.dart';
 import '../ui.dart';
 
-/// Picks the app a schedule sends you to instead: a searchable list of the
-/// phone's apps. Pops with the chosen [InstalledApp].
+/// Picks the app a schedule sends you to instead: a search field that stays
+/// put above a lazily built list of the phone's apps. Pops with the chosen
+/// [InstalledApp].
 class AppPicker extends StatefulWidget {
   const AppPicker({super.key, required this.apps});
 
@@ -18,7 +19,7 @@ class AppPicker extends StatefulWidget {
 class _AppPickerState extends State<AppPicker> {
   final _search = TextEditingController();
   List<InstalledApp>? _apps;
-  String? _error;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -28,8 +29,8 @@ class _AppPickerState extends State<AppPicker> {
       (apps) {
         if (mounted) setState(() => _apps = apps);
       },
-      onError: (Object e) {
-        if (mounted) setState(() => _error = "couldn't list apps: $e");
+      onError: (Object _) {
+        if (mounted) setState(() => _failed = true);
       },
     );
   }
@@ -47,56 +48,70 @@ class _AppPickerState extends State<AppPicker> {
       for (final app in _apps ?? const <InstalledApp>[])
         if (query.isEmpty || app.label.toLowerCase().contains(query)) app,
     ];
-    return Pane(
-      title: 'Send me to',
-      focused: true,
-      children: [
-        TextField(
-          key: const Key('app-search'),
-          controller: _search,
-          autofocus: true,
-          style: monoStyle(),
-          decoration: InputDecoration(
-            hintText: 'search apps',
-            hintStyle: monoStyle(color: AppColors.muted),
-            isDense: true,
-            contentPadding: const EdgeInsets.all(10),
-            enabledBorder: const OutlineInputBorder(
-              borderRadius: BorderRadius.zero,
-              borderSide: BorderSide(color: AppColors.border),
-            ),
-            focusedBorder: const OutlineInputBorder(
-              borderRadius: BorderRadius.zero,
-              borderSide: BorderSide(color: AppColors.accent),
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('SEND ME TO', style: monoStyle(bold: true)),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('app-search'),
+            controller: _search,
+            style: monoStyle(),
+            decoration: InputDecoration(
+              hintText: 'search apps',
+              hintStyle: monoStyle(color: AppColors.muted),
+              isDense: true,
+              contentPadding: const EdgeInsets.all(10),
+              enabledBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.zero,
+                borderSide: BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.zero,
+                borderSide: BorderSide(color: AppColors.accent),
+              ),
             ),
           ),
-        ),
-        if (_error != null) Muted(_error!),
-        if (_apps == null && _error == null) const Muted('loading apps…'),
-        if (_apps != null && shown.isEmpty) const Muted('no apps match.'),
-        for (final app in shown)
-          InkWell(
-            key: Key('app-${app.packageName}'),
-            onTap: () => Navigator.of(context).pop(app),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 48),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(app.label, style: monoStyle()),
-                  Text(
-                    app.packageName,
-                    style: monoStyle(color: AppColors.muted, size: 12),
+          const SizedBox(height: 10),
+          if (_failed)
+            const Muted("couldn't list your apps. go back and try again."),
+          if (_apps == null && !_failed) const Muted('loading apps…'),
+          if (_apps != null && shown.isEmpty) const Muted('no apps match.'),
+          Expanded(
+            child: ListView.builder(
+              itemCount: shown.length,
+              itemBuilder: (context, i) {
+                final app = shown[i];
+                return InkWell(
+                  key: Key('app-${app.packageName}'),
+                  onTap: () => Navigator.of(context).pop(app),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(app.label, style: monoStyle()),
+                        Text(
+                          app.packageName,
+                          style: monoStyle(color: AppColors.muted, size: 12),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 }

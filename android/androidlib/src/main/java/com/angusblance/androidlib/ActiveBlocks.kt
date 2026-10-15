@@ -14,18 +14,21 @@ data class ActiveBlocks(
   // the first running schedule covering it, in list order, that does more
   // than plain blocking; otherwise just block (manual blocks always just
   // block). Decision D2.
-  fun actionFor(host: String? = null, app: String? = null): Schedule.Action {
-    for (s in schedules) {
-      if (s.action == Schedule.Action.Block) continue
-      val covers = (app != null && app in s.apps) ||
+  fun actionFor(host: String? = null, app: String? = null): Schedule.Action =
+    scheduleFor(host, app)?.action ?: Schedule.Action.Block
+
+  // The running schedule whose action applies (see actionFor), if any.
+  fun scheduleFor(host: String? = null, app: String? = null): Schedule? =
+    schedules.firstOrNull { s ->
+      s.action != Schedule.Action.Block &&
         (
-          host != null &&
-            UrlMatcher.matchingDomain(host, s.domains.map(UrlMatcher::normalizeDomain)) != null
+          (app != null && app in s.apps) ||
+            (
+              host != null &&
+                UrlMatcher.matchingDomain(host, s.domains.map(UrlMatcher::normalizeDomain)) != null
+              )
           )
-      if (covers) return s.action
     }
-    return Schedule.Action.Block
-  }
 
   companion object {
     fun compute(

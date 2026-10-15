@@ -105,11 +105,13 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
       _redirectPackage = action.packageName;
       // Show the app's name once the list loads; its package until then.
       widget.loadApps?.call().then((apps) {
-        for (final app in apps) {
-          if (app.packageName == _redirectPackage && mounted) {
-            setState(() => _redirectLabel = app.label);
-          }
-        }
+        if (!mounted) return;
+        final match = apps.where((a) => a.packageName == _redirectPackage);
+        setState(() {
+          _redirectLabel = match.isEmpty
+              ? '$_redirectPackage (not installed)'
+              : match.first.label;
+        });
       }, onError: (_) {});
     }
   }
@@ -232,7 +234,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     if (load == null) return;
     final app = await Navigator.of(context).push<InstalledApp>(
       MaterialPageRoute(
-        builder: (_) => PushedPage(child: AppPicker(apps: load)),
+        builder: (_) => PushedPage(scroll: false, child: AppPicker(apps: load)),
       ),
     );
     if (app == null || !mounted) return;
