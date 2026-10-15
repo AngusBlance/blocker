@@ -32,6 +32,25 @@ abstract class Backend {
 
   /// Ends a running schedule early (just the current occurrence).
   Future<PauseResult> pauseSchedule(String id, String password);
+
+  /// Schedules running now, with when each one's current occurrence ends.
+  Future<List<RunningSchedule>> scheduleStatus();
+}
+
+class RunningSchedule {
+  const RunningSchedule(this.id, this.until);
+
+  final String id;
+  final DateTime until;
+
+  @override
+  bool operator ==(Object other) =>
+      other is RunningSchedule &&
+      other.id == id &&
+      other.until.isAtSameMomentAs(until);
+
+  @override
+  int get hashCode => Object.hash(id, until.millisecondsSinceEpoch);
 }
 
 enum PauseResult { paused, wrongPassword, notRunning }
@@ -132,5 +151,20 @@ class ChannelBackend implements Backend {
       'wrong_password' => PauseResult.wrongPassword,
       _ => PauseResult.notRunning,
     };
+  }
+
+  @override
+  Future<List<RunningSchedule>> scheduleStatus() async {
+    final json = await _channel.invokeMethod<String>('scheduleStatus') ?? '[]';
+    return [
+      for (final item in jsonDecode(json) as List)
+        switch (item) {
+          {'id': final String id, 'until': final int until} => RunningSchedule(
+            id,
+            DateTime.fromMillisecondsSinceEpoch(until),
+          ),
+          _ => throw FormatException('bad schedule status: $item'),
+        },
+    ];
   }
 }

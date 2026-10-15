@@ -100,13 +100,16 @@ data class Schedule(
 
   // Ending early (D1): pauses just the occurrence running now, so an "every"
   // schedule comes back next time. Null if it isn't active.
-  fun pausedForCurrentOccurrence(now: ZonedDateTime): Schedule? {
+  fun pausedForCurrentOccurrence(now: ZonedDateTime): Schedule? =
+    activeUntil(now)?.let { copy(pausedUntil = it) }
+
+  // When the occurrence running now ends (epoch millis), or null if inactive.
+  fun activeUntil(now: ZonedDateTime): Long? {
     if (!isActive(now)) return null
-    val end = when (plan) {
+    return when (plan) {
       is Plan.For -> plan.endsAt
       is Plan.Every -> plan.occurrenceEnd(now)!!.toInstant().toEpochMilli()
     }
-    return copy(pausedUntil = end)
   }
 
   fun toJson(): JSONObject = JSONObject()

@@ -1,17 +1,28 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/widgets.dart';
 
 import 'backend.dart';
+import 'schedule.dart';
 import 'sites.dart';
 
 /// App state over androidlib. State lives natively; this re-reads it after
 /// each change and whenever the app comes back to the foreground (e.g.
 /// returning from the Accessibility settings screen).
 class Blocker extends ChangeNotifier with WidgetsBindingObserver {
-  Blocker(this.backend) {
+  Blocker(this.backend, {DateTime Function()? clock})
+    : now = clock ?? DateTime.now {
     WidgetsBinding.instance.addObserver(this);
   }
 
   final Backend backend;
+
+  /// The current time; swapped for a fixed clock in tests.
+  final DateTime Function() now;
+
+  List<Schedule> schedules = [];
+  List<RunningSchedule> running = [];
 
   List<String> domains = [];
   List<String> apps = [];
@@ -49,9 +60,33 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     domains = await backend.blockedDomains();
     apps = await backend.blockedApps();
     serviceEnabled = await backend.isServiceEnabled();
+    schedules = await backend.schedules();
+    running = await backend.scheduleStatus();
     loaded = true;
+    _scheduleNextRefresh();
     notifyListeners();
   }
+
+  Timer? _timer;
+
+  /// Keeps the dashboard honest while it's open: refresh just after the
+  /// soonest running schedule ends, and at least once a minute so schedules
+  /// that start show up.
+  void _scheduleNextRefresh() {
+    _timer?.cancel();
+    var wait = const Duration(minutes: 1);
+    for (final r in running) {
+      final untilEnd = r.until.difference(now()) + const Duration(seconds: 1);
+      if (untilEnd < wait) {
+        wait = untilEnd < Duration.zero ? Duration.zero : untilEnd;
+      }
+    }
+    _timer = Timer(wait, () {
+      if (_foreground) refresh();
+    });
+  }
+
+  bool _foreground = true;
 
   Future<void> block(List<Site> toBlock) async {
     await backend.block(
@@ -71,14 +106,61 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     return ok;
   }
 
+  /// Running schedules with their names, soonest-ending first, for the
+  /// dashboard's one-row-each status.
+  List<({String name, int siteCount, DateTime until})> get runningRows {
+    final byId = {for (final s in schedules) s.id: s};
+    final rows = [
+      for (final r in running)
+        if (byId[r.id] case final s?)
+          (name: s.name, siteCount: s.sites.length, until: r.until),
+    ]..sort((a, b) => a.until.compareTo(b.until));
+    return rows;
+  }
+
+  /// "Block now for…": a one-off schedule from [startsAt] until [endsAt].
+  /// Stacks on top of anything already blocked (decision D2). One-off
+  /// schedules that have finished are tidied away at the same time (all of
+  /// them, not only "Block now" ones; a finished one-off never comes back).
+  Future<void> blockNow(
+    List<Site> picked,
+    DateTime startsAt,
+    DateTime endsAt,
+  ) async {
+    final start = startsAt;
+    final current = await backend.schedules();
+    final kept = current.where(
+      (s) => s.plan is! ForPlan || (s.plan as ForPlan).endsAt.isAfter(start),
+    );
+    final schedule = Schedule(
+      id: newScheduleId('now'),
+      name: 'Block now',
+      sites: [for (final s in picked) s.name],
+      domains: [for (final s in picked) ...s.domains],
+      apps: [for (final s in picked) ...s.apps],
+      plan: ForPlan(startsAt: start, endsAt: endsAt),
+    );
+    await backend.saveSchedules([...kept, schedule]);
+    await refresh();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refresh();
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) refresh();
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }
+
+final _random = Random.secure();
+
+/// A schedule id unique enough that two made in the same instant differ
+/// (androidlib rejects duplicate ids).
+String newScheduleId(String prefix) =>
+    '$prefix-${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32).toRadixString(36)}';
