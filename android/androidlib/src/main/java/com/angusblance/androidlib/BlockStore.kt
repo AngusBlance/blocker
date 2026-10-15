@@ -56,7 +56,7 @@ class BlockStore(context: Context) {
   }
 
   companion object {
-    private const val PREFS_NAME = "androidlib.blocker"
+    const val PREFS_NAME = "androidlib.blocker"
     private const val KEY_BLOCKED = "blocked_domains"
     private const val KEY_BLOCKED_APPS = "blocked_apps"
     private const val KEY_PASSWORD = "unlock_password"

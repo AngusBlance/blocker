@@ -53,6 +53,25 @@ data class Schedule(
         }
       }
 
+      // When the occurrence covering `now` ends, or null if none does.
+      fun occurrenceEnd(now: ZonedDateTime): ZonedDateTime? {
+        if (!covers(now)) return null
+        val today = now.toLocalDate()
+        fun at(date: java.time.LocalDate, minute: Int) =
+          date.atTime(minute / 60, minute % 60).atZone(now.zone)
+        val minute = now.hour * 60 + now.minute
+        return when {
+          start == end -> today.plusDays(1).atStartOfDay(now.zone)
+
+          start < end -> at(today, end)
+
+          minute >= start -> at(today.plusDays(1), end)
+
+          // overnight, evening part
+          else -> at(today, end) // overnight, morning part
+        }
+      }
+
       companion object {
         private val MINUTES = 0 until 24 * 60
       }
@@ -75,6 +94,17 @@ data class Schedule(
       is Plan.For -> now.toInstant().toEpochMilli().let { it >= plan.startsAt && it < plan.endsAt }
       is Plan.Every -> plan.covers(now)
     }
+  }
+
+  // Ending early (D1): pauses just the occurrence running now, so an "every"
+  // schedule comes back next time. Null if it isn't active.
+  fun pausedForCurrentOccurrence(now: ZonedDateTime): Schedule? {
+    if (!isActive(now)) return null
+    val end = when (plan) {
+      is Plan.For -> plan.endsAt
+      is Plan.Every -> plan.occurrenceEnd(now)!!.toInstant().toEpochMilli()
+    }
+    return copy(pausedUntil = end)
   }
 
   fun toJson(): JSONObject = JSONObject()
@@ -114,6 +144,26 @@ data class Schedule(
         it.toJson()
       },
     ).toString()
+
+    // For the accessibility service: one corrupt schedule is skipped, not
+    // allowed to take every other schedule down with it.
+    fun listFromJsonSkippingBad(text: String?): List<Schedule> {
+      if (text.isNullOrBlank()) return emptyList()
+      val array = try {
+        JSONArray(text)
+      } catch (e: JSONException) {
+        return emptyList()
+      }
+      return (0 until array.length()).mapNotNull { i ->
+        try {
+          fromJson(array.getJSONObject(i))
+        } catch (e: IllegalArgumentException) {
+          null
+        } catch (e: JSONException) {
+          null
+        }
+      }
+    }
 
     fun listFromJson(text: String): List<Schedule> = try {
       val array = JSONArray(text)

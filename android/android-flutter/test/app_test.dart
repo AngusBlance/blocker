@@ -1,5 +1,6 @@
 import 'package:blocker_flutter/backend.dart';
 import 'package:blocker_flutter/main.dart';
+import 'package:blocker_flutter/schedule.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,6 +51,19 @@ class FakeBackend implements Backend {
 
   @override
   Future<void> openAppInfo() async => appInfoOpened++;
+
+  List<Schedule> savedSchedules = [];
+
+  @override
+  Future<List<Schedule>> schedules() async => savedSchedules;
+
+  @override
+  Future<void> saveSchedules(List<Schedule> schedules) async =>
+      savedSchedules = [...schedules];
+
+  @override
+  Future<bool> pauseSchedule(String id, String typed) async =>
+      typed == password;
 }
 
 Future<FakeBackend> pump(WidgetTester tester, {FakeBackend? backend}) async {

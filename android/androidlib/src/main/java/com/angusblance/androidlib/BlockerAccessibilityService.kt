@@ -12,24 +12,28 @@ import android.view.accessibility.AccessibilityEvent
 // Covers the screen with BlockedActivity when a blocked app comes to the
 // front, or when a browser's address bar shows a blocked site. Android starts
 // and keeps this running on its own once the user enables it, independent of
-// the React UI.
+// the Flutter UI.
 class BlockerAccessibilityService : AccessibilityService() {
-  private lateinit var store: BlockStore
+  private lateinit var store: ScheduleStore
   private var lastBlocked: String? = null
   private var lastBlockedAt = 0L
   private val handler = Handler(Looper.getMainLooper())
 
   override fun onServiceConnected() {
-    store = BlockStore(this)
+    store = ScheduleStore(this)
     Log.i(TAG, "connected")
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent) {
     val packageName = event.packageName?.toString() ?: return
-    if (packageName in store.blockedApps) {
+    // Manual blocks plus whatever schedules are running right now, worked out
+    // per event so a schedule starts or ends without anything having to wake
+    // the service up.
+    val blocks = store.activeBlocks()
+    if (packageName in blocks.apps) {
       checkApp(packageName)
     } else {
-      checkBrowser(packageName)
+      checkBrowser(packageName, blocks.domains)
     }
   }
 
@@ -39,9 +43,8 @@ class BlockerAccessibilityService : AccessibilityService() {
     show(packageName, appLabel(packageName))
   }
 
-  private fun checkBrowser(packageName: String) {
+  private fun checkBrowser(packageName: String, blocked: Set<String>) {
     val barIds = BrowserUrlBars.idsFor(packageName) ?: return
-    val blocked = store.blockedDomains
     if (blocked.isEmpty()) return
 
     val root = rootInActiveWindow ?: return

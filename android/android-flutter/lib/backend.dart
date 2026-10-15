@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
+
+import 'schedule.dart';
 
 /// What the UI needs from androidlib. The real one talks to MainActivity's
 /// method channel; tests swap in a fake.
@@ -18,6 +22,15 @@ abstract class Backend {
   Future<int> sdkInt();
   Future<void> openAccessibilitySettings();
   Future<void> openAppInfo();
+
+  Future<List<Schedule>> schedules();
+
+  /// Replaces every schedule.
+  Future<void> saveSchedules(List<Schedule> schedules);
+
+  /// Ends a running schedule early (just the current occurrence). False if
+  /// the password is wrong or it isn't running.
+  Future<bool> pauseSchedule(String id, String password);
 }
 
 class ChannelBackend implements Backend {
@@ -66,4 +79,28 @@ class ChannelBackend implements Backend {
 
   @override
   Future<void> openAppInfo() => _channel.invokeMethod('openAppInfo');
+
+  // Schedules travel as the JSON schedule.dart and androidlib's Schedule.kt share.
+  @override
+  Future<List<Schedule>> schedules() async {
+    final json = await _channel.invokeMethod<String>('getSchedules') ?? '[]';
+    return [
+      for (final item in jsonDecode(json) as List)
+        Schedule.fromJson(item as Map<String, Object?>),
+    ];
+  }
+
+  @override
+  Future<void> saveSchedules(List<Schedule> schedules) =>
+      _channel.invokeMethod('saveSchedules', {
+        'json': jsonEncode([for (final s in schedules) s.toJson()]),
+      });
+
+  @override
+  Future<bool> pauseSchedule(String id, String password) async =>
+      await _channel.invokeMethod<bool>('pauseSchedule', {
+        'id': id,
+        'password': password,
+      }) ??
+      false;
 }
