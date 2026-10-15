@@ -83,6 +83,8 @@ class MainActivity : FlutterActivity() {
 
         "scheduleStatus" -> result.success(schedules.statusJson())
 
+        "nextSchedule" -> result.success(schedules.nextJson())
+
         // "paused", "wrong_password" or "not_running".
         "pauseSchedule" -> try {
           val outcome = schedules.pause(

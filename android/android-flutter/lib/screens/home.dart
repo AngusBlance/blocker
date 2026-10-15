@@ -44,8 +44,14 @@ class HomeScreen extends StatelessWidget {
               Field(
                 i == 0 ? 'now' : '',
                 '${row.name} · ${row.siteCount} ${row.siteCount == 1 ? 'site' : 'sites'}'
-                ' · until ${formatUntil(row.until, blocker.now())}',
+                ' · until ${formatUntil(row.until, blocker.now())}'
+                ' · ${formatRemaining(row.until.difference(blocker.now()))} left',
                 color: AppColors.accent,
+              ),
+            if (blocker.nextRow case final next?)
+              Field(
+                'next',
+                '${next.name} · from ${formatUntil(next.at, blocker.now())}',
               ),
             Field(
               'service',

@@ -9,6 +9,8 @@ void main() {
     expect(formatUntil(DateTime(2026, 10, 16), now), 'midnight');
     expect(formatUntil(DateTime(2026, 10, 16, 7), now), 'tomorrow 07:00');
     expect(formatUntil(DateTime(2026, 10, 19, 9), now), 'Mon 09:00');
+    // A week away, a bare "Thu" would read as today.
+    expect(formatUntil(DateTime(2026, 10, 22, 9), now), 'next Thu 09:00');
   });
 
   test('formatUntil counts calendar days across a DST change', () {
@@ -25,5 +27,13 @@ void main() {
     expect(formatDuration(const Duration(hours: 2)), '2h');
     expect(formatDuration(const Duration(minutes: 75)), '1h 15m');
     expect(formatClock(DateTime(2026, 1, 1, 7, 5)), '07:05');
+  });
+
+  test('formatRemaining rounds up to the minute', () {
+    expect(formatRemaining(const Duration(seconds: 30)), 'under a minute');
+    expect(formatRemaining(const Duration(minutes: 12, seconds: 1)), '13m');
+    expect(formatRemaining(const Duration(minutes: 59, seconds: 59)), '1h 00m');
+    expect(formatRemaining(const Duration(hours: 1, minutes: 5)), '1h 05m');
+    expect(formatRemaining(const Duration(hours: 26)), '26h 00m');
   });
 }

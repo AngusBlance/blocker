@@ -4,6 +4,9 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZonedDateTime
 
 // A block that applies at certain times: either once ("block now for an
@@ -112,6 +115,30 @@ data class Schedule(
     }
   }
 
+  // When this schedule next starts after `now` (and isn't paused then), for
+  // "next up" on the dashboard. Null if disabled or it never starts again.
+  fun nextStart(now: ZonedDateTime): ZonedDateTime? {
+    if (!enabled) return null
+    val paused = pausedUntil?.let { Instant.ofEpochMilli(it) }
+    fun usable(t: ZonedDateTime) =
+      t.isAfter(now) && (paused == null || !t.toInstant().isBefore(paused))
+    // A pause can end partway through an occurrence if the schedule was edited
+    // after being ended early; it blocks again from then.
+    val resumes = paused?.atZone(now.zone)?.takeIf {
+      it.isAfter(now) && copy(pausedUntil = null).isActive(it)
+    }
+    val scheduled = when (plan) {
+      is Plan.For -> Instant.ofEpochMilli(plan.startsAt).atZone(now.zone).takeIf { usable(it) }
+
+      is Plan.Every -> (0..14).asSequence()
+        .map { now.toLocalDate().plusDays(it.toLong()) }
+        .filter { it.dayOfWeek in plan.days }
+        .map { day -> startOf(day.atTime(plan.start / 60, plan.start % 60), now.zone) }
+        .firstOrNull { usable(it) }
+    }
+    return listOfNotNull(resumes, scheduled).minByOrNull { it.toInstant() }
+  }
+
   fun toJson(): JSONObject = JSONObject()
     .put("id", id)
     .put("name", name)
@@ -124,6 +151,12 @@ data class Schedule(
     .apply { pausedUntil?.let { put("pausedUntil", it) } }
 
   companion object {
+    // A start time that falls in a spring-forward gap begins when the clocks
+    // jump (covers() is already true then), not a gap's length later.
+    internal fun startOf(local: LocalDateTime, zone: ZoneId): ZonedDateTime =
+      zone.rules.getTransition(local)?.takeIf { it.isGap }?.instant?.atZone(zone)
+        ?: ZonedDateTime.of(local, zone)
+
     // Strict on types: Android's built-in org.json would otherwise turn a
     // number into "123" or null into "null" without complaint. Anything
     // malformed is an IllegalArgumentException, so callers (the accessibility

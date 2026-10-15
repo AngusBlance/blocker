@@ -97,4 +97,18 @@ object ScheduleRules {
       s.activeUntil(now)?.let { JSONObject().put("id", s.id).put("until", it) }
     },
   ).toString()
+
+  // The schedule that starts soonest after `now` among those not running,
+  // as JSON {"id": "...", "at": epochMillis}, or "null" if none.
+  fun next(schedules: List<Schedule>, now: ZonedDateTime): String {
+    val soonest = schedules
+      .filter { !it.isActive(now) }
+      .mapNotNull { s -> s.nextStart(now)?.let { s to it } }
+      .minByOrNull { it.second.toInstant() }
+      ?: return "null"
+    return JSONObject().put(
+      "id",
+      soonest.first.id,
+    ).put("at", soonest.second.toInstant().toEpochMilli()).toString()
+  }
 }

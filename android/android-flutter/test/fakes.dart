@@ -114,6 +114,22 @@ class FakeBackend implements Backend {
   @override
   Future<List<InstalledApp>> installedApps() async => launchableApps;
 
+  /// Mirrors androidlib's ScheduleRules.next: soonest start among schedules
+  /// not running now.
+  @override
+  Future<RunningSchedule?> nextSchedule() async {
+    final now = clock();
+    RunningSchedule? soonest;
+    for (final s in savedSchedules) {
+      if (fakeActiveUntil(s, now) != null) continue;
+      final at = fakeNextStart(s, now);
+      if (at != null && (soonest == null || at.isBefore(soonest.until))) {
+        soonest = RunningSchedule(s.id, at);
+      }
+    }
+    return soonest;
+  }
+
   @override
   Future<PauseResult> pauseSchedule(String id, String typed) async {
     if (typed != password) return PauseResult.wrongPassword;
@@ -178,4 +194,38 @@ Future<FakeBackend> pump(
 Future<void> tapTab(WidgetTester tester, String label) async {
   await tester.tap(find.byKey(Key('tab-$label')));
   await tester.pumpAndSettle();
+}
+
+/// A test-only copy of androidlib's Schedule.nextStart.
+DateTime? fakeNextStart(Schedule s, DateTime now) {
+  if (!s.enabled) return null;
+  bool usable(DateTime t) =>
+      t.isAfter(now) && (s.pausedUntil == null || !t.isBefore(s.pausedUntil!));
+  final paused = s.pausedUntil;
+  final resumes =
+      paused != null &&
+          paused.isAfter(now) &&
+          fakeActiveUntil(s.copyWith(clearPause: true), paused) != null
+      ? paused
+      : null;
+  DateTime? soonest(DateTime? t) =>
+      resumes != null && (t == null || resumes.isBefore(t)) ? resumes : t;
+  switch (s.plan) {
+    case ForPlan(:final startsAt):
+      return soonest(usable(startsAt) ? startsAt : null);
+    case EveryPlan(:final days, :final start):
+      for (var i = 0; i <= 14; i++) {
+        final day = DateTime(now.year, now.month, now.day + i);
+        if (!days.contains(day.weekday)) continue;
+        final t = DateTime(
+          day.year,
+          day.month,
+          day.day,
+          start ~/ 60,
+          start % 60,
+        );
+        if (usable(t)) return soonest(t);
+      }
+      return soonest(null);
+  }
 }

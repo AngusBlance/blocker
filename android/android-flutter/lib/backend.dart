@@ -36,6 +36,9 @@ abstract class Backend {
   /// Schedules running now, with when each one's current occurrence ends.
   Future<List<RunningSchedule>> scheduleStatus();
 
+  /// The schedule that starts soonest among those not running, if any.
+  Future<RunningSchedule?> nextSchedule();
+
   /// Apps a schedule can send you to instead (launchable, not Blocker).
   Future<List<InstalledApp>> installedApps();
 }
@@ -190,5 +193,20 @@ class ChannelBackend implements Backend {
         if (app case {'package': final String pkg, 'label': final String label})
           InstalledApp(pkg, label),
     ];
+  }
+
+  /// Reuses [RunningSchedule]: `until` is when it starts.
+  @override
+  Future<RunningSchedule?> nextSchedule() async {
+    final json = await _channel.invokeMethod<String>('nextSchedule');
+    if (json == null) return null;
+    return switch (jsonDecode(json)) {
+      null => null,
+      {'id': final String id, 'at': final int at} => RunningSchedule(
+        id,
+        DateTime.fromMillisecondsSinceEpoch(at),
+      ),
+      final other => throw FormatException('bad next schedule: $other'),
+    };
   }
 }

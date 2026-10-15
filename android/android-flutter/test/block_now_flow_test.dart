@@ -41,7 +41,10 @@ void main() {
         find.byKey(const Key('start-block')),
         findsNothing,
       ); // sheet closed
-      expect(find.text('Block now · 2 sites · until 14:30'), findsOneWidget);
+      expect(
+        find.text('Block now · 2 sites · until 14:30 · 1h 00m left'),
+        findsOneWidget,
+      );
       expect(find.text('BLOCKED'), findsOneWidget);
     },
   );
@@ -52,7 +55,9 @@ void main() {
     await tapKey(tester, 'length-until 7am');
     await tapKey(tester, 'start-block');
     expect(
-      find.text('Block now · ${sites.length} sites · until tomorrow 07:00'),
+      find.text(
+        'Block now · ${sites.length} sites · until tomorrow 07:00 · 9h 00m left',
+      ),
       findsOneWidget,
     );
   });
@@ -104,9 +109,9 @@ void main() {
           .map((t) => t.data)
           .toList();
       expect(rows, [
-        'Block now · ${sites.length} sites · until 14:00',
-        'Block now · ${sites.length} sites · until 15:30',
-        'Work · 1 site · until 17:00',
+        'Block now · ${sites.length} sites · until 14:00 · 30m left',
+        'Block now · ${sites.length} sites · until 15:30 · 2h 00m left',
+        'Work · 1 site · until 17:00 · 3h 30m left',
       ]);
     },
   );
@@ -145,7 +150,7 @@ void main() {
     await tapKey(tester, 'length-15m');
     await tapKey(tester, 'start-block');
     expect(
-      find.text('Block now · ${sites.length} sites · until 13:45'),
+      find.text('Block now · ${sites.length} sites · until 13:45 · 15m left'),
       findsOneWidget,
     );
     clock = now.add(const Duration(minutes: 16));
@@ -154,4 +159,83 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining(' · until '), findsNothing);
   });
+
+  testWidgets('the dashboard says which schedule starts next', (tester) async {
+    final backend = FakeBackend()
+      ..savedSchedules = [
+        Schedule(
+          id: 'evening',
+          name: 'Evening',
+          sites: ['Netflix'],
+          domains: ['netflix.com'],
+          apps: [],
+          plan: EveryPlan(
+            days: {1, 2, 3, 4, 5, 6, 7},
+            start: 18 * 60,
+            end: 23 * 60,
+          ),
+        ),
+        Schedule(
+          id: 'gym',
+          name: 'Gym',
+          sites: ['YouTube'],
+          domains: ['youtube.com'],
+          apps: [],
+          plan: EveryPlan(days: {6}, start: 8 * 60, end: 9 * 60),
+        ),
+      ];
+    await pump(tester, backend: backend, clock: () => now);
+    expect(find.text('Evening · from 18:00'), findsOneWidget);
+  });
+
+  testWidgets('the next row moves on once a schedule has started', (
+    tester,
+  ) async {
+    var clock = DateTime(2026, 10, 15, 17, 59, 30);
+    final backend = FakeBackend()
+      ..savedSchedules = [
+        Schedule(
+          id: 'evening',
+          name: 'Evening',
+          sites: ['Netflix'],
+          domains: ['netflix.com'],
+          apps: [],
+          plan: EveryPlan(days: {4}, start: 18 * 60, end: 23 * 60),
+        ),
+      ];
+    await pump(tester, backend: backend, clock: () => clock);
+    expect(find.text('Evening · from 18:00'), findsOneWidget);
+    clock = DateTime(2026, 10, 15, 18, 0, 1);
+    backend.clock = () => clock;
+    // Sooner than the once-a-minute refresh: the row refreshes when it starts.
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Evening · 1 site · until 23:00 · 5h 00m left'),
+      findsOneWidget,
+    );
+    // Running schedules aren't "next"; nothing else is scheduled.
+    expect(find.textContaining(' · from '), findsNothing);
+  });
+
+  testWidgets(
+    'a schedule ended early and then lengthened is next when the pause ends',
+    (tester) async {
+      final now = DateTime(2026, 10, 15, 10);
+      final backend = FakeBackend()
+        ..savedSchedules = [
+          Schedule(
+            id: 'work',
+            name: 'Work',
+            sites: ['Netflix'],
+            domains: ['netflix.com'],
+            apps: [],
+            plan: EveryPlan(days: {4}, start: 9 * 60, end: 18 * 60),
+            pausedUntil: DateTime(2026, 10, 15, 17), // ended when it was 9–5
+          ),
+        ];
+      await pump(tester, backend: backend, clock: () => now);
+      expect(find.text('Work · from 17:00'), findsOneWidget);
+    },
+  );
 }
