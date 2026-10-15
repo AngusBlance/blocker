@@ -1,12 +1,11 @@
 name: Android APK
 
-# Builds standalone APKs of both Android apps: android-mobile (React Native,
-# blocker.apk) and android-flutter (blocker-flutter.apk). On pull requests it
-# only checks they still build (this is what compiles the Kotlin). On main it
-# also signs them and publishes both on the "android-latest" GitHub release, so
-# they can be downloaded straight to a phone. Every build is signed with the
-# same key (from repo secrets), so a new APK installs over the old one and
-# keeps the block list and password.
+# Builds a standalone APK of the Flutter app (android/android-flutter). On pull
+# requests it only checks it still builds (this is what compiles the Kotlin).
+# On main it also signs it and publishes it as blocker-flutter.apk on the
+# "android-latest" GitHub release, so it can be downloaded straight to a
+# phone. Every build is signed with the same key (from repo secrets), so a new
+# APK installs over the old one and keeps the block list and password.
 
 on:
   push:
@@ -28,59 +27,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  react-native:
-    name: React Native APK
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: android/package-lock.json
-
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@v6
-
-      - run: npm ci
-        working-directory: android
-
-      - name: Generate native Android project
-        working-directory: android/android-mobile
-        run: npx expo prebuild --platform android --no-install
-
-      - name: Build release APK
-        working-directory: android/android-mobile/android
-        # Phones are arm64; skipping the other ABIs roughly halves build time.
-        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
-
-      - name: Sign with the release key
-        if: github.event_name != 'pull_request'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          cp android/android-mobile/android/app/build/outputs/apk/release/app-release.apk blocker.apk
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks "$RUNNER_TEMP/release.jks" --ks-key-alias blocker \
-            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD \
-            blocker.apk
-          "$BUILD_TOOLS/apksigner" verify blocker.apk
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
-        with:
-          name: blocker.apk
-          path: blocker.apk
-
-  flutter:
+  build:
     name: Flutter APK
     runs-on: ubuntu-latest
     steps:
@@ -98,6 +45,7 @@ jobs:
 
       - name: Build release APK
         working-directory: android/android-flutter
+        # Phones are arm64; skipping the other ABIs keeps the build quick.
         run: flutter build apk --release --target-platform android-arm64
 
       - name: Sign with the release key
@@ -121,24 +69,14 @@ jobs:
           name: blocker-flutter.apk
           path: blocker-flutter.apk
 
-  publish:
-    name: Publish android-latest
-    if: github.event_name != 'pull_request'
-    needs: [react-native, flutter]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v7
-        with:
-          merge-multiple: true
-
       - name: Publish android-latest release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
           gh release delete android-latest --cleanup-tag --yes || true
-          gh release create android-latest blocker.apk blocker-flutter.apk \
+          gh release create android-latest blocker-flutter.apk \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "Android (latest build)" \
-            --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. blocker.apk is the React Native app, blocker-flutter.apk the Flutter one; they install side by side. Download one on your phone and open it to install."
+            --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Download blocker-flutter.apk on your phone and open it to install."

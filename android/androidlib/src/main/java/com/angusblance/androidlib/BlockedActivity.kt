@@ -30,7 +30,7 @@ class BlockedActivity : Activity() {
     goHome()
   }
 
-  // Same palette as android-mobile/src/theme.ts (Textual's dark theme).
+  // Same palette as android-flutter/lib/theme.dart (Textual's dark theme).
   private fun buildView() = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     gravity = Gravity.CENTER

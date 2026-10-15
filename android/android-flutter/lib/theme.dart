@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-// Same palette as the TUI (Textual's dark theme) and the React Native app:
+// Same palette as the TUI (Textual's dark theme):
 // near-black background, square single-line borders, orange accent on
 // whatever has focus, monospace text.
 class AppColors {

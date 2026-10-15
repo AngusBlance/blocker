@@ -12,8 +12,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-// The Dart UI's way into androidlib: the same calls AndroidlibModule.kt gives
-// the React Native app, over a Flutter method channel instead of Expo.
+// The Dart UI's way into androidlib, over a Flutter method channel.
 class MainActivity : FlutterActivity() {
   private val store by lazy { BlockStore(this) }
 

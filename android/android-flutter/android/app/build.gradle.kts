@@ -8,10 +8,9 @@ android {
     namespace = "com.angusblance.blockerflutter"
 
     // The blocking backend is androidlib's Kotlin, compiled straight from
-    // android/androidlib so both Android apps share one copy. Its Expo bridge
-    // (AndroidlibModule.kt) is left out; MainActivity's channel replaces it.
-    sourceSets["main"].java.srcDir("../../../androidlib/android/src/main/java")
-    sourceSets["main"].res.srcDir("../../../androidlib/android/src/main/res")
+    // android/androidlib; MainActivity's method channel exposes it to Dart.
+    sourceSets["main"].java.srcDir("../../../androidlib/src/main/java")
+    sourceSets["main"].res.srcDir("../../../androidlib/src/main/res")
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +20,6 @@ android {
     }
 
     defaultConfig {
-        // Separate from the React Native app (com.angusblance.blocker) so both can be installed.
         applicationId = "com.angusblance.blocker.flutter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -42,10 +40,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    exclude { it.file.name == "AndroidlibModule.kt" }
 }
 
 kotlin {

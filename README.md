@@ -7,10 +7,9 @@ Site blocker for macOS and Android.
   - `tui/`: Textual app, the `block` command.
   - `extension/`: Chrome extension that syncs with the desktop app. `src/` is what Chrome loads; the rest is its own npm lint setup.
   - `tests/`: packaging tests.
-- `android/`: JS (npm) and Kotlin.
+- `android/`: Flutter and Kotlin.
   - `androidlib/`: Kotlin accessibility-service backend.
-  - `android-mobile/`: Expo / React Native app.
-  - `android-flutter/`: the same app in Flutter, on the same `androidlib` Kotlin backend.
+  - `android-flutter/`: the Flutter app, on the `androidlib` backend.
 
 ## macOS
 
@@ -24,16 +23,11 @@ block install
 
 ## Android
 
-Two builds of the same app, on the same backend. They install side by side, so pick one:
+**[Download blocker-flutter.apk](https://github.com/AngusBlance/blocker/releases/download/android-latest/blocker-flutter.apk)** ([release page](https://github.com/AngusBlance/blocker/releases/tag/android-latest))
 
-- **[Download blocker.apk](https://github.com/AngusBlance/blocker/releases/download/android-latest/blocker.apk)**: React Native (`android/android-mobile`)
-- **[Download blocker-flutter.apk](https://github.com/AngusBlance/blocker/releases/download/android-latest/blocker-flutter.apk)**: Flutter (`android/android-flutter`)
+Open the link on your phone and install the APK (allow your browser to install unknown apps if asked). Then open Blocker and follow the setup steps on its dashboard.
 
-([release page](https://github.com/AngusBlance/blocker/releases/tag/android-latest))
-
-Open a link on your phone and install the APK (allow your browser to install unknown apps if asked). Then open Blocker and follow the setup steps on its dashboard. If you install both, each has its own block list and its own accessibility service to turn on.
-
-Both APKs are rebuilt on every change to `main` that touches `android/`, and new builds install over the old ones.
+The APK is rebuilt on every change to `main` that touches `android/`, and new builds install over the old one.
 
 ## Development
 
@@ -50,11 +44,6 @@ uv run --all-packages pytest tests
 # macbook: Chrome extension
 cd macbook/extension && npm ci && npm run lint
 
-# android: JS/TS
-cd android && npm ci
-npx eslint . && npx prettier --check .
-npx tsc --noEmit -p android-mobile && npx tsc --noEmit -p androidlib
-
 # android: Flutter
 cd android/android-flutter && flutter analyze && flutter test
 
@@ -62,6 +51,6 @@ cd android/android-flutter && flutter analyze && flutter test
 cd android && ktlint "androidlib/**/*.kt"
 ```
 
-`uv run ruff format .`, `npx prettier --write .` and `ktlint --format` fix formatting.
+`uv run ruff format .`, `dart format lib test` and `ktlint --format` fix formatting.
 
 Tests that edit the real `/etc/hosts` with sudo are skipped unless you set `RUN_LIVE_HOSTS_TESTS=1`.
