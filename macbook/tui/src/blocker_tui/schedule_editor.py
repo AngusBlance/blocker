@@ -1,15 +1,18 @@
 """The schedule editor: pick the days, the from–to times and the sites a
 schedule blocks. The same fields and checks as the Android editor
-(schedule_editor.dart); tab (or enter in a text box) moves between fields,
-space ticks a box, enter presses a button, ctrl+s saves, esc cancels."""
+(schedule_editor.dart). h/j/k/l (or arrows) move around the form, x or space
+ticks a box, enter presses a button (in a text box it moves on, like tab),
+ctrl+s saves, esc cancels."""
 
 import re
 from dataclasses import replace
 from typing import Callable, Dict, List, Optional, Tuple
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Static
 
 from blocker_tui import schedules as sched_ui
@@ -22,7 +25,7 @@ DAY_SHORTCUTS = {
     "every-day": set(range(1, 8)),
     "weekends": {6, 7},
 }
-_TIME = re.compile(r"(\d{1,2}):?(\d{2})")
+_TIME = re.compile(r"([0-9]{1,2}):?([0-9]{2})")
 
 
 def site_domains() -> Dict[str, List[str]]:
@@ -76,10 +79,16 @@ def build(
         plan = EveryPlan(frozenset(days), start, end)
     except ScheduleError as e:
         return None, f"{e}."
+    # Sites this version doesn't know (say, from a newer one) are kept with
+    # their domains, as on Android: the editor can't show them, so it mustn't
+    # silently drop them.
+    unknown = [n for n in (initial.sites if initial else ()) if n not in groups]
+    known_urls = {u for urls in groups.values() for u in urls}
+    kept = [d for d in (initial.domains if initial else ()) if d not in known_urls]
     fields = dict(
         name=name.strip(),
-        sites=tuple(picked),
-        domains=tuple(u for s in picked for u in groups[s]),
+        sites=(*picked, *unknown),
+        domains=(*(u for s in picked for u in groups[s]), *(kept if unknown else ())),
         plan=plan,
     )
     if initial is not None:
@@ -99,9 +108,16 @@ class ScheduleEditor(ModalScreen):
         self,
         initial: Optional[Schedule] = None,
         new_id: Callable[[], str] = lambda: sched_ui.new_id(),
+        on_save: Optional[Callable[[Schedule, Callable[[], None]], None]] = None,
     ) -> None:
+        """on_save(schedule, close) stores the schedule and calls close() once
+        it's stored; until then the editor stays open (e.g. while a password
+        is asked for), so a cancelled save loses nothing. Without on_save the
+        editor just dismisses with the schedule."""
         super().__init__()
         self.initial = initial
+        self.on_save = on_save
+        self._want_col = 0
         self.new_id = new_id()
         self.site_names = list(site_domains())
 
@@ -114,7 +130,7 @@ class ScheduleEditor(ModalScreen):
         )
         days = plan.days if isinstance(plan, EveryPlan) else frozenset()
         all_day = isinstance(plan, EveryPlan) and plan.all_day
-        with VerticalScroll(id="editor-dialog"):
+        with VerticalScroll(id="editor-dialog", can_focus=False):
             yield Static("EDIT SCHEDULE" if s else "NEW SCHEDULE", classes="title")
             if s is None:
                 yield Static("start from", classes="label")
@@ -127,6 +143,7 @@ class ScheduleEditor(ModalScreen):
                 placeholder="e.g. work",
                 id="schedule-name",
                 compact=True,
+                select_on_focus=False,  # a stray key mustn't replace the name
             )
             yield Static("days", classes="label")
             with Horizontal(classes="row"):
@@ -164,13 +181,15 @@ class ScheduleEditor(ModalScreen):
                 yield Button("save", variant="primary", id="save", compact=True)
                 yield Button("cancel", id="cancel", compact=True)
             yield Static(
-                "tab / shift+tab move · space ticks · enter presses"
-                " · ctrl+s saves · esc cancels",
+                "h j k l move · x ticks · enter presses · ctrl+s saves · esc cancels",
                 id="editor-keys",
             )
 
     def on_mount(self) -> None:
-        self.query_one("#schedule-name", Input).focus()
+        # A new schedule starts with typing its name; an existing one on the
+        # days, ready to move around with h/j/k/l.
+        first = "#schedule-name" if self.initial is None else "#day-1"
+        self.query_one(first).focus()
         self._update()
 
     # Reading the form
@@ -222,6 +241,79 @@ class ScheduleEditor(ModalScreen):
         self.query_one("#summary", Static).update(summary)
         self.query_one("#editor-error", Static).update(problem)
 
+    # Moving around: vim keys (and arrows) on a grid of the form's rows.
+    # In a text box letters type, so only the up and down arrows move.
+
+    _MOVES = {
+        "h": (0, -1),
+        "left": (0, -1),
+        "l": (0, 1),
+        "right": (0, 1),
+        "j": (1, 0),
+        "down": (1, 0),
+        "k": (-1, 0),
+        "up": (-1, 0),
+    }
+
+    def _grid(self) -> List[List[Widget]]:
+        rows: List[List[str]] = []
+        if self.initial is None:
+            rows.append([f"preset-{i}" for i in range(len(sched_ui.PRESETS))])
+        rows += [
+            ["schedule-name"],
+            [f"day-{d}" for d in range(1, 8)],
+            [f"days-{key}" for key in DAY_SHORTCUTS],
+            ["time-from", "time-to", "all-day"],
+            *[[f"site-{i}"] for i in range(len(self.site_names))],
+            ["save", "cancel"],
+        ]
+        grid = []
+        for row in rows:
+            widgets = [self.query_one(f"#{i}") for i in row]
+            widgets = [w for w in widgets if not w.disabled]
+            if widgets:
+                grid.append(widgets)
+        return grid
+
+    def _move(self, rows: int, cols: int) -> None:
+        grid = self._grid()
+        here = next(
+            (
+                (r, c)
+                for r, row in enumerate(grid)
+                for c, w in enumerate(row)
+                if w is self.focused
+            ),
+            None,
+        )
+        if here is None:
+            target = grid[0][0]
+        else:
+            r, c = here
+            if rows:
+                # Like vim: up and down aim for the column you were last in.
+                r = min(max(r + rows, 0), len(grid) - 1)
+                c = min(self._want_col, len(grid[r]) - 1)
+            else:
+                c = min(max(c + cols, 0), len(grid[r]) - 1)
+                self._want_col = c
+            target = grid[r][c]
+        target.focus()
+        target.scroll_visible()
+
+    def on_key(self, event: events.Key) -> None:
+        typing = isinstance(self.focused, Input)
+        if typing and event.key not in ("up", "down"):
+            return
+        if event.key in self._MOVES:
+            self._move(*self._MOVES[event.key])
+        elif event.key == "x" and isinstance(self.focused, Checkbox):
+            self.focused.toggle()
+        else:
+            return
+        event.stop()
+        event.prevent_default()
+
     # Events
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -251,7 +343,7 @@ class ScheduleEditor(ModalScreen):
 
     def _apply_preset(self, preset: sched_ui.Preset) -> None:
         self._set_days(set(preset.days))
-        self.query_one("#all-day", Checkbox).value = preset.start == preset.end
+        self.query_one("#all-day", Checkbox).value = False
         self.query_one("#time-from", Input).value = sched_ui.format_minute(preset.start)
         self.query_one("#time-to", Input).value = sched_ui.format_minute(preset.end)
         # Fill the name in, or swap it if it's still another preset's name.
@@ -264,10 +356,15 @@ class ScheduleEditor(ModalScreen):
     def action_save(self) -> None:
         schedule, problem = self._result()
         if schedule is None:
-            self.query_one("#editor-error", Static).update(problem)
-            self.app.bell()
+            error = self.query_one("#editor-error", Static)
+            error.update(problem)
+            error.scroll_visible()
+            self.notify(problem, severity="warning")  # seen even if scrolled off
             return
-        self.dismiss(schedule)
+        if self.on_save is None:
+            self.dismiss(schedule)
+        else:
+            self.on_save(schedule, lambda: self.dismiss(schedule))
 
     def action_cancel(self) -> None:
         self.dismiss(None)

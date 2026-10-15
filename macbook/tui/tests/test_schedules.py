@@ -517,6 +517,8 @@ async def test_a_damaged_file_is_shown_and_never_saved_over(
         await fill_editor(app, pilot, name="x", sites=["YouTube"])
         await pilot.press("ctrl+s")
         assert isolated_schedules.read_bytes() == content
+        assert isinstance(app.screen, ScheduleEditor)  # kept open; nothing lost
+        await pilot.press("escape")
         await pilot.press("h", "k", "k")  # the dashboard still works
         assert "none running" in screen_text(app)
 
@@ -594,8 +596,9 @@ async def test_tab_and_enter_move_from_the_name_to_the_days(stored):
     app = BlockerApp()
     async with app.run_test(size=(110, 50)) as pilot:
         await open_schedules(pilot)
-        await pilot.press("enter")  # edit Work; the name box has focus
+        await pilot.press("enter")  # edit Work
         editor = app.screen
+        await pilot.press("k")  # up to the name
         assert editor.focused.id == "schedule-name"
         await pilot.press("enter")  # moves on, doesn't save
         assert isinstance(app.screen, ScheduleEditor)
@@ -610,3 +613,126 @@ async def test_tab_and_enter_move_from_the_name_to_the_days(stored):
         assert isinstance(app.screen, UnlockModal)
         await type_password(app, pilot)
         assert saved(stored)["work"].plan.days == frozenset({1, 2, 3, 4, 5, 6})
+
+
+async def test_vim_keys_move_around_the_form(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "j", "enter")  # edit Gym (Saturday, off)
+        editor = app.screen
+        assert editor.focused.id == "day-1"  # editing starts on the days
+        await pilot.press("k")
+        assert editor.focused.id == "schedule-name"
+        await pilot.press("h", "j")  # in the name, letters type
+        assert editor.query_one("#schedule-name", Input).value == "Gymhj"
+        await pilot.press("down")  # the arrows leave a text box
+        assert editor.focused.id == "day-1"
+        await pilot.press("l", "l", "x")  # tick Wednesday
+        assert editor._days() == {3, 6}
+        await pilot.press("l", "l", "l", "l", "l", "l")  # stops at the row's end
+        assert editor.focused.id == "day-7"
+        await pilot.press("j")
+        assert editor.focused.id == "days-weekends"  # same column, clamped
+        await pilot.press("k", "h")
+        assert editor.focused.id == "day-6"
+        await pilot.press("j", "j", "j")  # shortcuts, times, first site
+        assert editor.focused.id == "site-0"
+        await pilot.press("space", "j")
+        assert editor.focused.id == "site-1"
+        await pilot.press("k", "k")
+        assert editor.focused.id == "all-day"  # the times row, as far right as it goes
+        await pilot.press("h")
+        assert editor.focused.id == "time-to"
+        await pilot.press("j")  # in a text box j types
+        assert editor.query_one("#time-to", Input).value.endswith("j")
+
+
+UNKNOWN_SITE = replace(
+    WORK, sites=("YouTube", "Reddit"), domains=("youtube.com", "reddit.com")
+)
+
+
+async def test_sites_the_mac_doesnt_know_are_kept(isolated_schedules, monkeypatch):
+    with_clock(monkeypatch, isolated_schedules, [UNKNOWN_SITE])
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("enter")
+        await fill_editor(app, pilot, name="Work hours")
+        await pilot.press("ctrl+s")
+        assert not isinstance(app.screen, UnlockModal)  # nothing was weakened
+        work = saved(isolated_schedules)["work"]
+        assert work.sites == ("YouTube", "Reddit")
+        assert "reddit.com" in work.domains and "youtube.com" in work.domains
+
+
+async def test_cancelling_the_password_keeps_the_editor_and_the_edit(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("enter")  # Work, running
+        await fill_editor(app, pilot, days={1, 2}, name="Shorter")
+        await pilot.press("ctrl+s")
+        assert isinstance(app.screen, UnlockModal)
+        await pilot.press("escape")
+        editor = app.screen
+        assert isinstance(editor, ScheduleEditor)
+        assert editor._days() == {1, 2}
+        assert editor.query_one("#schedule-name", Input).value == "Shorter"
+        await pilot.press("ctrl+s")
+        await type_password(app, pilot)
+        assert not isinstance(app.screen, (ScheduleEditor, UnlockModal))
+        assert saved(stored)["work"].plan.days == frozenset({1, 2})
+
+
+async def test_an_edit_only_changes_what_the_editor_shows(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "enter")  # Evening
+        # Meanwhile it's turned off elsewhere.
+        schedule_store.save(
+            [WORK, replace(EVENING, enabled=False), GYM], True, NOW, stored
+        )
+        await fill_editor(app, pilot, name="Nights")
+        await pilot.press("ctrl+s")
+        evening = saved(stored)["evening"]
+        assert evening.name == "Nights" and evening.enabled is False
+
+
+async def test_editing_one_deleted_meanwhile_says_so(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "enter")  # Evening
+        schedule_store.save([WORK, GYM], True, NOW, stored)
+        await fill_editor(app, pilot, name="Nights")
+        await pilot.press("ctrl+s")
+        assert "evening" not in saved(stored)  # not brought back
+
+
+async def test_a_problem_is_visible_on_a_small_terminal(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("a")
+        await pilot.press("ctrl+s")  # no name, no sites
+        assert isinstance(app.screen, ScheduleEditor)
+        assert any(
+            "pick at least one site." in str(n.message) for n in app._notifications
+        )
+
+
+async def test_typing_app_keys_into_the_name_only_types(stored):
+    app = BlockerApp()
+    async with app.run_test(size=(110, 50)) as pilot:
+        await open_schedules(pilot)
+        await pilot.press("a", *"jktadeqhlb")
+        assert isinstance(app.screen, ScheduleEditor)
+        assert app.screen.query_one("#schedule-name", Input).value == "jktadeqhlb"
+
+
+def test_unicode_digits_arent_times():
+    assert parse_time("٠٩:٠٠") is None
+    assert parse_time(" 9:00 ") == 540

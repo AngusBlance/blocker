@@ -500,10 +500,10 @@ class BlockerApp(App):
             setup_password()
         self.push_screen(UnlockModal("", get_password(), title, reason), handle)
 
-    def _change_schedules(self, change, done: str) -> None:
+    def _change_schedules(self, change, done: str, on_success=None) -> None:
         """Applies change (list -> list) to the stored schedules. If that
         would weaken a running schedule, asks for the password and tries
-        again with it."""
+        again with it. on_success() runs once it's stored."""
 
         def write(password_ok: bool) -> None:
             schedule_store.update(
@@ -516,20 +516,24 @@ class BlockerApp(App):
             self._ask_password(
                 f"{e.name.upper()} IS RUNNING",
                 "changing a running schedule needs the unlock password:",
-                lambda: self._finish_change(lambda: write(True), done),
+                lambda: self._finish_change(lambda: write(True), done, on_success),
             )
             return
         except (OSError, ScheduleError) as e:
             self.notify(f"couldn't save: {e}", severity="error", timeout=6)
             return
+        if on_success is not None:
+            on_success()
         self._after_schedule_change(done)
 
-    def _finish_change(self, write, done: str) -> None:
+    def _finish_change(self, write, done: str, on_success=None) -> None:
         try:
             write()
         except (OSError, ScheduleError) as e:
             self.notify(f"couldn't save: {e}", severity="error", timeout=6)
             return
+        if on_success is not None:
+            on_success()
         self._after_schedule_change(done)
 
     def _after_schedule_change(self, message: str) -> None:
@@ -561,31 +565,40 @@ class BlockerApp(App):
             self.notify("one-off blocks can't be edited; (e) ends one early.")
             return
 
-        def saved(edited) -> None:
-            if edited is None:
-                return
-
+        def save(edited, close) -> None:
             def change(stored):
+                # Only the fields the editor shows; anything else (on/off,
+                # a pause) may have changed since it opened.
                 if not any(x.id == edited.id for x in stored):
-                    return [*stored, edited]  # deleted meanwhile: keep the edit
-                return [edited if x.id == edited.id else x for x in stored]
+                    raise ScheduleError(f"{s.name} was deleted meanwhile")
+                fields = dict(
+                    name=edited.name,
+                    sites=edited.sites,
+                    domains=edited.domains,
+                    plan=edited.plan,
+                )
+                return [
+                    replace(x, **fields) if x.id == edited.id else x for x in stored
+                ]
 
-            self._change_schedules(change, f"saved {edited.name}.")
+            self._change_schedules(change, f"saved {edited.name}.", close)
 
-        self.push_screen(ScheduleEditor(s), saved)
+        self.push_screen(ScheduleEditor(s, on_save=save))
 
     def action_add_schedule(self) -> None:
         if not self._in_schedules():
             return
 
-        def add(new) -> None:
-            if new is None:
-                return
-            self._change_schedules(lambda stored: [*stored, new], f"added {new.name}.")
-            if new.id in sched_ui.row_ids(load_schedules(), sched_ui.now()):
+        def save(new, close) -> None:
+            def added() -> None:
+                close()
                 self.query_one(Content).schedule_id = new.id
 
-        self.push_screen(ScheduleEditor(), add)
+            self._change_schedules(
+                lambda stored: [*stored, new], f"added {new.name}.", added
+            )
+
+        self.push_screen(ScheduleEditor(on_save=save))
 
     def action_end_schedule_early(self) -> None:
         if not self._in_schedules():
