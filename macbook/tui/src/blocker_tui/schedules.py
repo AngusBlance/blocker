@@ -105,25 +105,35 @@ def shown(schedules: List[Schedule], current: datetime) -> List[Schedule]:
 
 def schedules_text(
     schedules: List[Schedule],
-    index: int,
+    selected_id: str,
     current: datetime,
     helper_installed: bool,
+    error: Optional[str] = None,
 ) -> str:
     rows = shown(schedules, current)
     lines = ["SCHEDULES"]
+    if error:
+        lines += [
+            f"  ! {error}",
+            "    fix or delete the file; nothing is saved over it.",
+        ]
     if not helper_installed:
         lines += [
             "  ! the schedule helper isn't installed, so schedules won't block.",
             "    run `block install` once to set it up.",
         ]
     lines.append("")
-    if not rows:
+    if not rows and not error:
         lines.append("  no schedules yet. a schedule blocks every site at set")
         lines.append("  times, like weekdays 9–5 or every night.")
     width = max((len(s.name) for s in rows), default=0)
-    for i, s in enumerate(rows):
-        cursor = ">" if i == index else " "
-        switch = "[on ]" if s.enabled else "[off]"
+    for s in rows:
+        cursor = ">" if s.id == selected_id else " "
+        # One-off blocks just run out, so they have no switch.
+        if isinstance(s.plan, ForPlan):
+            switch = "     "
+        else:
+            switch = "[on ]" if s.enabled else "[off]"
         lines.append(f"{cursor} {switch} {s.name:<{width}}  {format_plan(s.plan)}")
         lines.append(f"        {status(s, current)}")
     lines += [
@@ -165,8 +175,16 @@ def new_schedule(preset: Preset) -> Schedule:
     )
 
 
-def selected(
-    schedules: List[Schedule], index: int, current: datetime
-) -> Optional[Schedule]:
-    rows = shown(schedules, current)
-    return rows[index] if 0 <= index < len(rows) else None
+def row_ids(schedules: List[Schedule], current: datetime) -> List[str]:
+    return [s.id for s in shown(schedules, current)]
+
+
+def moved(ids: List[str], selected_id: str, delta: int) -> str:
+    """The id `delta` rows from `selected_id` (clamped), or the first row's
+    if it isn't shown."""
+    if not ids:
+        return ""
+    if selected_id not in ids:
+        return ids[0]
+    i = min(max(ids.index(selected_id) + delta, 0), len(ids) - 1)
+    return ids[i]

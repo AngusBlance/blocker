@@ -1,5 +1,7 @@
 """The schedules section: list, on/off, end early, add, delete."""
 
+import json
+import os
 from dataclasses import replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -95,14 +97,14 @@ def test_formatting_matches_android():
 
 
 def test_list_shows_each_schedule_with_its_state(stored):
-    text = sched_ui.schedules_text([WORK, EVENING, GYM], 0, NOW, True)
+    text = sched_ui.schedules_text([WORK, EVENING, GYM], "work", NOW, True)
     assert "> [on ] Work" in text
     assert "running · until 17:00" in text
     assert "[off] Gym" in text
     assert "helper isn't installed" not in text
     paused = sched_ui.schedules_text(
         [replace(WORK, paused_until=ms(datetime(2026, 10, 15, 17, tzinfo=LONDON)))],
-        0,
+        "work",
         NOW,
         False,
     )
@@ -247,7 +249,10 @@ async def test_deleting_a_running_schedule_needs_the_password(stored):
     async with app.run_test() as pilot:
         await open_schedules(pilot)
         await pilot.press("d")
+        assert isinstance(app.screen, ConfirmModal)
+        await pilot.press("y")
         assert isinstance(app.screen, UnlockModal)
+        assert app.screen.title == "WORK IS RUNNING"
         await type_password(app, pilot)
         assert list(saved(stored)) == ["evening", "gym"]
 
@@ -265,6 +270,176 @@ async def test_cursor_stays_on_the_list(stored):
     async with app.run_test() as pilot:
         await open_schedules(pilot)
         await pilot.press("j", "j", "j", "j")
-        assert app.query_one(Content).schedule_index == 2
+        assert app.query_one(Content).schedule_id == "gym"
         await pilot.press("k", "k", "k")
-        assert app.query_one(Content).schedule_index == 0
+        assert app.query_one(Content).schedule_id == "work"
+
+
+# Review follow-ups
+
+
+def one_off(id, start, end):
+    return Schedule(
+        id, "Block now", ("Netflix",), ("netflix.com",), (), ForPlan(ms(start), ms(end))
+    )
+
+
+BLOCK = one_off(
+    "block",
+    datetime(2026, 10, 15, 13, tzinfo=LONDON),
+    datetime(2026, 10, 15, 14, tzinfo=LONDON),
+)
+AFTER_BLOCK = datetime(2026, 10, 15, 14, 1, tzinfo=LONDON)
+
+
+def with_clock(monkeypatch, path, schedules):
+    clock = [NOW]
+    monkeypatch.setattr(sched_ui, "now", lambda: clock[0])
+    schedule_store.write_text(list_to_json(schedules), path)
+    return clock
+
+
+async def test_keys_act_on_the_highlighted_schedule_after_rows_drop_off(
+    isolated_schedules, monkeypatch
+):
+    clock = with_clock(monkeypatch, isolated_schedules, [BLOCK, EVENING, GYM])
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j")  # Evening
+        clock[0] = AFTER_BLOCK  # the one-off above it finishes
+        await pilot.press("enter")
+        assert saved(isolated_schedules)["evening"].enabled is False
+        assert saved(isolated_schedules)["gym"].enabled is False  # untouched
+
+
+async def test_the_cursor_moves_on_when_its_row_drops_off(
+    isolated_schedules, monkeypatch
+):
+    clock = with_clock(monkeypatch, isolated_schedules, [EVENING, BLOCK])
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j")  # the one-off
+        clock[0] = AFTER_BLOCK
+        await pilot.press("e")  # it's gone: says so, asks nothing
+        assert not isinstance(app.screen, UnlockModal)
+        assert app.query_one(Content).schedule_id == "evening"
+        app._tick()
+        assert "> [on ] Evening" in screen_text(app)
+
+
+async def test_a_one_off_has_no_switch_and_ends_early_with_its_own_wording(
+    isolated_schedules, monkeypatch
+):
+    with_clock(monkeypatch, isolated_schedules, [BLOCK])
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        assert "[on ]" not in screen_text(app)
+        await pilot.press("enter")
+        assert saved(isolated_schedules)["block"].enabled is True
+        await pilot.press("e")
+        assert app.screen.reason == "this ends the block now."
+        await type_password(app, pilot)
+        assert sched_ui.shown(schedule_store.load(isolated_schedules), NOW) == []
+
+
+async def test_a_schedule_that_ends_while_typing_the_password_is_left_alone(
+    stored, monkeypatch
+):
+    clock = [NOW]
+    monkeypatch.setattr(sched_ui, "now", lambda: clock[0])
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("e")
+        assert "comes back as scheduled" in app.screen.reason
+        clock[0] = datetime(2026, 10, 15, 17, 1, tzinfo=LONDON)
+        await type_password(app, pilot)
+        assert saved(stored)["work"].paused_until is None
+
+
+@pytest.mark.parametrize("content", [b"\xff\xfe not utf-8", b"{not json", b'{"a": 1}'])
+async def test_a_damaged_file_is_shown_and_never_saved_over(
+    isolated_schedules, monkeypatch, content
+):
+    monkeypatch.setattr(sched_ui, "now", lambda: NOW)
+    isolated_schedules.write_bytes(content)
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        assert "nothing is saved over it" in screen_text(app)
+        await pilot.press("a", "enter")
+        assert isolated_schedules.read_bytes() == content
+        await pilot.press("h", "k", "k")  # the dashboard still works
+        assert "none running" in screen_text(app)
+
+
+async def test_entries_it_cant_read_survive_a_change(isolated_schedules, monkeypatch):
+    monkeypatch.setattr(sched_ui, "now", lambda: NOW)
+    odd = {"id": "future", "plan": {"type": "monthly"}}
+    isolated_schedules.write_text(json.dumps([EVENING.to_json(), odd]))
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("enter")
+        assert json.loads(isolated_schedules.read_text())[1] == odd
+        assert saved(isolated_schedules)["evening"].enabled is False
+
+
+async def test_delete_uses_the_list_as_it_is_when_confirmed(stored):
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "d")  # Evening
+        # Meanwhile another window adds one.
+        others = [*schedule_store.load(stored), replace(GYM, id="new")]
+        schedule_store.save(others, True, NOW, stored)
+        await pilot.press("y")
+        assert list(saved(stored)) == ["work", "gym", "new"]
+
+
+async def test_deleting_the_last_row_moves_the_cursor(stored):
+    app = BlockerApp()
+    async with app.run_test() as pilot:
+        await open_schedules(pilot)
+        await pilot.press("j", "j", "d", "y")  # Gym
+        assert app.query_one(Content).schedule_id == "work"
+
+
+def test_dashboard_with_nothing_running_or_next(tmp_path, monkeypatch):
+    monkeypatch.setattr(sched_ui, "now", lambda: NOW)
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n")
+    text = dashboard_text(hosts)
+    assert "none running" in text and "next" not in text
+
+
+async def test_the_tick_tells_the_extension_when_hosts_changes(
+    stored, monkeypatch, tmp_path
+):
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n")
+    monkeypatch.setattr("blocker_tui.app.HOSTS_FILE", hosts)
+
+    class FakeServer:
+        def __init__(self):
+            self.notified = 0
+
+        def notify_change(self):
+            self.notified += 1
+
+        def stop(self):
+            pass
+
+    app = BlockerApp()
+    async with app.run_test():
+        server = FakeServer()
+        app._sync_server = server
+        app._tick()
+        assert server.notified == 0
+        hosts.write_text("127.0.0.1 localhost\n127.0.0.1 x.com\n")
+        os.utime(hosts, ns=(0, 1))
+        app._tick()
+        assert server.notified == 1
