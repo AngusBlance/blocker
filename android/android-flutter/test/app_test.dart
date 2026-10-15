@@ -1,5 +1,6 @@
 import 'package:blocker_flutter/backend.dart';
 import 'package:blocker_flutter/main.dart';
+import 'package:blocker_flutter/schedule.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,7 +51,40 @@ class FakeBackend implements Backend {
 
   @override
   Future<void> openAppInfo() async => appInfoOpened++;
+
+  List<Schedule> savedSchedules = [];
+
+  /// Ids the fake treats as running now (androidlib works this out for real).
+  Set<String> running = {};
+
+  @override
+  Future<List<Schedule>> schedules() async => savedSchedules;
+
+  @override
+  Future<void> saveSchedules(
+    List<Schedule> schedules, {
+    String? password,
+  }) async {
+    final next = {for (final s in schedules) s.id: s};
+    for (final id in running) {
+      final kept = next[id];
+      if (password != _unlockPasswordForTests &&
+          (kept == null || !kept.enabled)) {
+        throw ScheduleLockedException('$id is running');
+      }
+    }
+    savedSchedules = [...schedules];
+  }
+
+  @override
+  Future<PauseResult> pauseSchedule(String id, String typed) async {
+    if (typed != password) return PauseResult.wrongPassword;
+    if (!running.remove(id)) return PauseResult.notRunning;
+    return PauseResult.paused;
+  }
 }
+
+const _unlockPasswordForTests = password;
 
 Future<FakeBackend> pump(WidgetTester tester, {FakeBackend? backend}) async {
   final b = backend ?? FakeBackend();

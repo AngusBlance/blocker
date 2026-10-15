@@ -53,6 +53,27 @@ data class Schedule(
         }
       }
 
+      // When the occurrence covering `now` ends, or null if none does.
+      fun occurrenceEnd(now: ZonedDateTime): ZonedDateTime? {
+        if (!covers(now)) return null
+        val today = now.toLocalDate()
+        val minute = now.hour * 60 + now.minute
+        val endsAt = when {
+          start == end -> today.plusDays(1).atStartOfDay()
+
+          start < end -> today.atTime(end / 60, end % 60)
+
+          // Overnight: the evening part ends tomorrow, the morning part today.
+          minute >= start -> today.plusDays(1).atTime(end / 60, end % 60)
+
+          else -> today.atTime(end / 60, end % 60)
+        }
+        // In the autumn overlap a clock time happens twice; prefer the offset
+        // in force now, and take the later one if that would already be past.
+        val zoned = ZonedDateTime.ofLocal(endsAt, now.zone, now.offset)
+        return if (zoned.isAfter(now)) zoned else zoned.withLaterOffsetAtOverlap()
+      }
+
       companion object {
         private val MINUTES = 0 until 24 * 60
       }
@@ -75,6 +96,17 @@ data class Schedule(
       is Plan.For -> now.toInstant().toEpochMilli().let { it >= plan.startsAt && it < plan.endsAt }
       is Plan.Every -> plan.covers(now)
     }
+  }
+
+  // Ending early (D1): pauses just the occurrence running now, so an "every"
+  // schedule comes back next time. Null if it isn't active.
+  fun pausedForCurrentOccurrence(now: ZonedDateTime): Schedule? {
+    if (!isActive(now)) return null
+    val end = when (plan) {
+      is Plan.For -> plan.endsAt
+      is Plan.Every -> plan.occurrenceEnd(now)!!.toInstant().toEpochMilli()
+    }
+    return copy(pausedUntil = end)
   }
 
   fun toJson(): JSONObject = JSONObject()
@@ -115,9 +147,32 @@ data class Schedule(
       },
     ).toString()
 
+    // For the accessibility service: one corrupt schedule is skipped, not
+    // allowed to take every other schedule down with it.
+    fun listFromJsonSkippingBad(text: String?): List<Schedule> {
+      if (text.isNullOrBlank()) return emptyList()
+      val array = try {
+        JSONArray(text)
+      } catch (e: JSONException) {
+        return emptyList()
+      }
+      return (0 until array.length()).mapNotNull { i ->
+        try {
+          fromJson(array.getJSONObject(i))
+        } catch (e: IllegalArgumentException) {
+          null
+        } catch (e: JSONException) {
+          null
+        }
+      }
+    }
+
     fun listFromJson(text: String): List<Schedule> = try {
       val array = JSONArray(text)
-      (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+      val list = (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+      val duplicates = list.groupingBy { it.id }.eachCount().filterValues { it > 1 }.keys
+      require(duplicates.isEmpty()) { "duplicate schedule ids: $duplicates" }
+      list
     } catch (e: JSONException) {
       throw IllegalArgumentException("malformed schedule list: ${e.message}", e)
     }

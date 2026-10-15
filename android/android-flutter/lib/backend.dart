@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
+
+import 'schedule.dart';
 
 /// What the UI needs from androidlib. The real one talks to MainActivity's
 /// method channel; tests swap in a fake.
@@ -18,6 +22,28 @@ abstract class Backend {
   Future<int> sdkInt();
   Future<void> openAccessibilitySettings();
   Future<void> openAppInfo();
+
+  Future<List<Schedule>> schedules();
+
+  /// Replaces every schedule. Throws [ScheduleLockedException] if that would
+  /// weaken a schedule that's running now and [password] isn't the unlock
+  /// password.
+  Future<void> saveSchedules(List<Schedule> schedules, {String? password});
+
+  /// Ends a running schedule early (just the current occurrence).
+  Future<PauseResult> pauseSchedule(String id, String password);
+}
+
+enum PauseResult { paused, wrongPassword, notRunning }
+
+/// Saving would remove, disable or weaken a schedule that's running now.
+class ScheduleLockedException implements Exception {
+  ScheduleLockedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 class ChannelBackend implements Backend {
@@ -66,4 +92,45 @@ class ChannelBackend implements Backend {
 
   @override
   Future<void> openAppInfo() => _channel.invokeMethod('openAppInfo');
+
+  // Schedules travel as the JSON schedule.dart and androidlib's Schedule.kt share.
+  @override
+  Future<List<Schedule>> schedules() async {
+    final json = await _channel.invokeMethod<String>('getSchedules') ?? '[]';
+    return [
+      for (final item in jsonDecode(json) as List)
+        Schedule.fromJson(item as Map<String, Object?>),
+    ];
+  }
+
+  @override
+  Future<void> saveSchedules(
+    List<Schedule> schedules, {
+    String? password,
+  }) async {
+    try {
+      await _channel.invokeMethod('saveSchedules', {
+        'json': jsonEncode([for (final s in schedules) s.toJson()]),
+        'password': password,
+      });
+    } on PlatformException catch (e) {
+      if (e.code == 'locked') {
+        throw ScheduleLockedException(e.message ?? 'schedule is running');
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<PauseResult> pauseSchedule(String id, String password) async {
+    final result = await _channel.invokeMethod<String>('pauseSchedule', {
+      'id': id,
+      'password': password,
+    });
+    return switch (result) {
+      'paused' => PauseResult.paused,
+      'wrong_password' => PauseResult.wrongPassword,
+      _ => PauseResult.notRunning,
+    };
+  }
 }

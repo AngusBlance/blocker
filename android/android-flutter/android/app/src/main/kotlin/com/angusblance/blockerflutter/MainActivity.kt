@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.provider.Settings
 import com.angusblance.androidlib.BlockStore
 import com.angusblance.androidlib.BlockerAccessibilityService
+import com.angusblance.androidlib.Schedule
+import com.angusblance.androidlib.ScheduleRules
+import com.angusblance.androidlib.ScheduleStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,6 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 // The Dart UI's way into androidlib, over a Flutter method channel.
 class MainActivity : FlutterActivity() {
   private val store by lazy { BlockStore(this) }
+  private val schedules by lazy { ScheduleStore(this) }
 
   private val serviceComponent
     get() = ComponentName(this, BlockerAccessibilityService::class.java)
@@ -44,6 +48,32 @@ class MainActivity : FlutterActivity() {
         )
 
         "getUnlockPassword" -> result.success(store.unlockPassword)
+
+        // Schedules travel as the JSON Schedule.kt and schedule.dart share.
+        "getSchedules" -> result.success(
+          Schedule.listToJson(schedules.schedules),
+        )
+
+        "saveSchedules" -> try {
+          schedules.replaceAll(
+            call.argument<String>("json") ?: "",
+            call.argument<String>("password"),
+          )
+          result.success(null)
+        } catch (e: ScheduleRules.LockedException) {
+          result.error("locked", e.message, null)
+        } catch (e: IllegalArgumentException) {
+          result.error("bad_schedules", e.message, null)
+        }
+
+        // "paused", "wrong_password" or "not_running".
+        "pauseSchedule" -> result.success(
+          schedules.pause(
+            call.argument<String>("id") ?: "",
+            call.argument<String>("password") ?: "",
+          )
+            .name.lowercase(),
+        )
 
         "isServiceEnabled" -> result.success(isServiceEnabled())
 
