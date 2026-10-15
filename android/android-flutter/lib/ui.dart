@@ -174,6 +174,9 @@ class SquareChip extends StatelessWidget {
       checked: marker ? selected : null,
       inMutuallyExclusiveGroup: !marker,
       button: true,
+      // The marker text is hidden from screen readers, so the tap has to be
+      // put back on this node or the chip can't be activated.
+      onTap: onTap,
       excludeSemantics: true,
       child: Material(
         color: selected ? AppColors.surface : AppColors.background,
@@ -184,15 +187,24 @@ class SquareChip extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onTap,
-          child: Container(
+          // At least 48dp tall for touch, but only as wide as its label
+          // (widthFactor 1), so chips sit side by side in a Wrap.
+          child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 48),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Text(
-              marker ? '${selected ? '(x)' : '( )'} $label' : label,
-              style: monoStyle(
-                color: selected ? AppColors.accent : AppColors.foreground,
-                bold: selected,
+            child: Align(
+              widthFactor: 1,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: Text(
+                  marker ? '${selected ? '(x)' : '( )'} $label' : label,
+                  style: monoStyle(
+                    color: selected ? AppColors.accent : AppColors.foreground,
+                    bold: selected,
+                  ),
+                ),
               ),
             ),
           ),

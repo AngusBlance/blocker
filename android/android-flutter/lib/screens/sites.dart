@@ -13,7 +13,9 @@ class SitesScreen extends StatelessWidget {
   });
 
   final Blocker blocker;
-  final void Function(Site site) requestUnlock;
+
+  /// Opens the unlock screen for [site], or for everything blocked if null.
+  final void Function(Site? site) requestUnlock;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +37,12 @@ class SitesScreen extends StatelessWidget {
           ],
         ),
         const Muted('tap to block. unblocking needs the password.'),
+        if (blocker.blockedSites.length > 1)
+          AppButton(
+            'unlock everything',
+            key: const Key('unlock-everything'),
+            onPressed: () => requestUnlock(null),
+          ),
       ],
     );
   }
