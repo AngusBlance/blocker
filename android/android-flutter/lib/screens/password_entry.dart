@@ -144,25 +144,20 @@ Future<String?> askForUnlockPassword(
   if (!context.mounted) return null;
   return Navigator.of(context).push<String>(
     MaterialPageRoute(
-      builder: (context) => Scaffold(
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: PasswordEntry(
-              password: shown,
-              title: title,
-              explanation:
-                  '$reason type the password below. paste is off on purpose.',
-              actionLabel: actionLabel,
-              cancelLabel: 'cancel',
-              onCancel: () => Navigator.of(context).pop(),
-              onSubmit: (typed) async {
-                if (typed != shown) return false;
-                Navigator.of(context).pop(typed);
-                return true;
-              },
-            ),
-          ),
+      builder: (context) => PushedPage(
+        child: PasswordEntry(
+          password: shown,
+          title: title,
+          explanation:
+              '$reason type the password below. paste is off on purpose.',
+          actionLabel: actionLabel,
+          cancelLabel: 'cancel',
+          onCancel: () => Navigator.of(context).pop(),
+          onSubmit: (typed) async {
+            if (typed != shown) return false;
+            Navigator.of(context).pop(typed);
+            return true;
+          },
         ),
       ),
     ),

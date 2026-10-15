@@ -87,4 +87,49 @@ void main() {
       expect(b.apps, {'com.google.android.youtube'});
     },
   );
+
+  testWidgets('unlocking opens as its own screen with a way back', (
+    tester,
+  ) async {
+    final b = await pump(tester);
+    await tapTab(tester, 'sites');
+    await tester.tap(find.byKey(const Key('site-Netflix')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('site-Netflix')));
+    await tester.pumpAndSettle();
+    expect(find.text('UNLOCK NETFLIX'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('page-back')));
+    await tester.pumpAndSettle();
+    expect(find.text('BLOCKED SITES'), findsOneWidget);
+    expect(b.domains, contains('netflix.com'));
+  });
+
+  testWidgets('unlock everything shows when several sites are blocked', (
+    tester,
+  ) async {
+    final b = await pump(tester);
+    await tapTab(tester, 'sites');
+    expect(find.byKey(const Key('unlock-everything')), findsNothing);
+    for (final name in ['Netflix', 'TikTok']) {
+      await tester.tap(find.byKey(Key('site-$name')));
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(find.byKey(const Key('unlock-everything')));
+    await tester.tap(find.byKey(const Key('unlock-everything')));
+    await tester.pumpAndSettle();
+    expect(find.text('UNLOCK EVERYTHING'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('unlock-input')), password);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unlock-button')));
+    await tester.pumpAndSettle();
+    expect(b.domains, isEmpty);
+    expect(find.text('BLOCKED SITES'), findsOneWidget);
+  });
+
+  testWidgets('the schedules tab is the third tile', (tester) async {
+    await pump(tester);
+    await tapTab(tester, 'schedules');
+    expect(find.text('SCHEDULES'), findsOneWidget);
+    expect(find.byKey(const Key('new-schedule')), findsOneWidget);
+  });
 }

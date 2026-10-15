@@ -4,6 +4,7 @@ import 'package:blocker_flutter/screens/schedules_screen.dart';
 import 'package:blocker_flutter/sites.dart';
 import 'package:blocker_flutter/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fakes.dart';
@@ -69,10 +70,13 @@ class _HostState extends State<_Host> {
 Future<FakeBackend> pumpSchedules(
   WidgetTester tester, {
   List<TimeOfDay> picks = const [],
+  List<Schedule>? schedules,
+  FakeBackend? backend,
 }) async {
-  final backend = FakeBackend()
+  backend ??= FakeBackend();
+  backend
     ..clock = (() => now)
-    ..savedSchedules = [work, evening, gym];
+    ..savedSchedules = schedules ?? [work, evening, gym];
   final queue = [...picks];
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.6;
@@ -156,7 +160,8 @@ void main() {
         backend.savedSchedules.first.pausedUntil,
         DateTime(2026, 10, 15, 17),
       );
-      expect(status(tester, 'work'), 'ended early · back after 17:00');
+      expect(status(tester, 'work'), 'ended early · back next time');
+      expect(find.text('Work ended early.'), findsOneWidget);
     },
   );
 
@@ -228,4 +233,103 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'renaming or adding a site to a running schedule needs no password',
+    (tester) async {
+      final backend = await pumpSchedules(tester);
+      await tapKey(tester, 'schedule-work');
+      await tester.enterText(
+        find.byKey(const Key('schedule-name')),
+        'Work hours',
+      );
+      await tapKey(tester, 'site-chip-Netflix');
+      await tapKey(tester, 'save-schedule');
+      expect(find.text('WORK IS RUNNING'), findsNothing);
+      final saved = backend.savedSchedules.first;
+      expect(saved.name, 'Work hours');
+      expect(saved.sites, ['YouTube', 'Netflix']);
+      expect(saved.plan, work.plan);
+    },
+  );
+
+  testWidgets('a failed save says so instead of failing silently', (
+    tester,
+  ) async {
+    final backend = await pumpSchedules(tester, backend: _FailingBackend());
+    await tapKey(tester, 'toggle-evening');
+    expect(find.textContaining("couldn't save"), findsOneWidget);
+    expect(backend.savedSchedules[1].enabled, isTrue);
+  });
+
+  testWidgets('ending a schedule that has just finished says so', (
+    tester,
+  ) async {
+    final backend = await pumpSchedules(tester);
+    await tapKey(tester, 'end-work');
+    backend.clock = () =>
+        DateTime(2026, 10, 15, 17, 1); // it ended while typing
+    await typePassword(tester);
+    expect(find.text('Work had already finished.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'finished one-offs are hidden; running ones can only be ended early',
+    (tester) async {
+      Schedule oneOff(String id, DateTime start, DateTime end) => Schedule(
+        id: id,
+        name: 'Block now',
+        sites: ['Netflix'],
+        domains: ['netflix.com'],
+        apps: [],
+        plan: ForPlan(startsAt: start, endsAt: end),
+      );
+      await pumpSchedules(
+        tester,
+        schedules: [
+          oneOff('done', DateTime(2026, 10, 15, 9), DateTime(2026, 10, 15, 10)),
+          oneOff('now', DateTime(2026, 10, 15, 13), DateTime(2026, 10, 15, 14)),
+        ],
+      );
+      expect(find.byKey(const Key('schedule-done')), findsNothing);
+      expect(find.byKey(const Key('schedule-now')), findsOneWidget);
+      expect(find.byKey(const Key('toggle-now')), findsNothing);
+      expect(find.byKey(const Key('end-now')), findsOneWidget);
+      await tapKey(tester, 'schedule-now'); // not editable
+      expect(find.byKey(const Key('save-schedule')), findsNothing);
+    },
+  );
+
+  testWidgets('deleting a schedule that is not running asks to confirm', (
+    tester,
+  ) async {
+    final backend = await pumpSchedules(tester);
+    await tapKey(tester, 'schedule-evening');
+    await tapKey(tester, 'delete-schedule');
+    expect(find.text('delete Evening?'), findsOneWidget);
+    await tester.tap(find.text('keep it'));
+    await tester.pumpAndSettle();
+    expect(backend.savedSchedules, hasLength(3));
+    await tapKey(tester, 'delete-schedule');
+    await tapKey(tester, 'confirm-delete');
+    expect(backend.savedSchedules.map((s) => s.id), ['work', 'gym']);
+  });
+
+  testWidgets('the editor has a back button', (tester) async {
+    await pumpSchedules(tester);
+    await tapKey(tester, 'new-schedule');
+    await tapKey(tester, 'page-back');
+    expect(find.byKey(const Key('new-schedule')), findsOneWidget);
+  });
+}
+
+/// Saves fail with a platform error (e.g. storage full).
+class _FailingBackend extends FakeBackend {
+  @override
+  Future<void> saveSchedules(
+    List<Schedule> schedules, {
+    String? password,
+  }) async {
+    throw PlatformException(code: 'error', message: 'disk full');
+  }
 }

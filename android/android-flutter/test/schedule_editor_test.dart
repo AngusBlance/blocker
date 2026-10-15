@@ -151,4 +151,85 @@ void main() {
     await tapKey(tester, 'delete-schedule');
     expect(h.deleted, isTrue);
   });
+
+  testWidgets(
+    'a from time equal to the to time is refused, not turned into all day',
+    (tester) async {
+      final h = await pumpEditor(tester);
+      h.picks.add(const TimeOfDay(hour: 17, minute: 0));
+      await tapKey(tester, 'time-from'); // 17:00-17:00
+      expect(find.byKey(const Key('plan-summary')), findsNothing);
+      expect(find.text("from and to can't be the same time."), findsOneWidget);
+      await tapKey(tester, 'site-chip-YouTube');
+      await tapKey(tester, 'save-schedule');
+      expect(h.saved, isNull);
+    },
+  );
+
+  testWidgets('turning all day off brings back the times from before', (
+    tester,
+  ) async {
+    final h = await pumpEditor(tester);
+    h.picks.addAll([
+      const TimeOfDay(hour: 22, minute: 0),
+      const TimeOfDay(hour: 7, minute: 0),
+    ]);
+    await tapKey(tester, 'time-from');
+    await tapKey(tester, 'time-to');
+    await tapKey(tester, 'all-day');
+    expect(summary(tester), 'weekdays · all day');
+    await tapKey(tester, 'all-day');
+    expect(summary(tester), 'weekdays · 22:00–07:00 next day');
+  });
+
+  testWidgets('switching presets swaps a preset name but keeps a typed one', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tapKey(tester, 'preset-work 9–5');
+    await tapKey(tester, 'preset-bedtime');
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('schedule-name')))
+          .controller!
+          .text,
+      'bedtime',
+    );
+    await tester.enterText(find.byKey(const Key('schedule-name')), 'nights');
+    await tapKey(tester, 'preset-evenings');
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('schedule-name')))
+          .controller!
+          .text,
+      'nights',
+    );
+  });
+
+  testWidgets('sites this version does not know are kept on save', (
+    tester,
+  ) async {
+    final existing = Schedule(
+      id: 'old',
+      name: 'Old',
+      sites: ['YouTube', 'Myspace'],
+      domains: [...sites.first.domains, 'myspace.com'],
+      apps: sites.first.apps,
+      plan: EveryPlan(days: {1}, start: 540, end: 600),
+    );
+    final h = await pumpEditor(tester, initial: existing);
+    await tapKey(tester, 'save-schedule');
+    expect(h.saved!.sites, ['YouTube', 'Myspace']);
+    expect(h.saved!.domains, [...sites.first.domains, 'myspace.com']);
+  });
+
+  testWidgets('day chips can be toggled by screen readers', (tester) async {
+    final handle = tester.ensureSemantics();
+    await pumpEditor(tester);
+    expect(
+      tester.getSemantics(find.byKey(const Key('day-6'))),
+      isSemantics(label: 'Saturday', isButton: true, hasTapAction: true),
+    );
+    handle.dispose();
+  });
 }

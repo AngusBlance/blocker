@@ -9,6 +9,7 @@ import 'screens/sites.dart';
 import 'screens/unlock.dart';
 import 'sites.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 void main() {
   runApp(BlockerApp(backend: ChannelBackend()));
@@ -46,16 +47,11 @@ class _BlockerAppState extends State<BlockerApp> {
   /// Unlocking is its own screen over the tabs, opened from sites.
   void _unlock(BuildContext context, Site? site) => Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (route) => Scaffold(
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: UnlockScreen(
-              blocker: blocker,
-              site: site,
-              done: () => Navigator.of(route).pop(),
-            ),
-          ),
+      builder: (route) => PushedPage(
+        child: UnlockScreen(
+          blocker: blocker,
+          site: site,
+          done: () => Navigator.of(route).pop(),
         ),
       ),
     ),

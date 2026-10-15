@@ -64,18 +64,23 @@ class MainActivity : FlutterActivity() {
           result.error("locked", e.message, null)
         } catch (e: IllegalArgumentException) {
           result.error("bad_schedules", e.message, null)
+        } catch (e: Exception) {
+          // e.g. storage refusing the write; the app shows it.
+          result.error("error", e.message, null)
         }
 
         "scheduleStatus" -> result.success(schedules.statusJson())
 
         // "paused", "wrong_password" or "not_running".
-        "pauseSchedule" -> result.success(
-          schedules.pause(
+        "pauseSchedule" -> try {
+          val outcome = schedules.pause(
             call.argument<String>("id") ?: "",
             call.argument<String>("password") ?: "",
           )
-            .name.lowercase(),
-        )
+          result.success(outcome.name.lowercase())
+        } catch (e: Exception) {
+          result.error("error", e.message, null)
+        }
 
         "isServiceEnabled" -> result.success(isServiceEnabled())
 

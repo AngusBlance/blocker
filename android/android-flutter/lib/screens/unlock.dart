@@ -55,7 +55,7 @@ class _UnlockScreenState extends State<UnlockScreen> {
       explanation:
           'type the password below to unlock. paste is off on purpose.',
       actionLabel: 'unlock',
-      onCancel: widget.site != null ? widget.done : null,
+      onCancel: widget.done,
       onSubmit: (typed) async {
         final ok = await widget.blocker.unblock(typed, _targets);
         if (ok) widget.done();

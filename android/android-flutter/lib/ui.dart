@@ -156,6 +156,7 @@ class SquareChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.marker = true,
+    this.exclusive = false,
   });
 
   final String label;
@@ -166,13 +167,17 @@ class SquareChip extends StatelessWidget {
   /// durations, where the border alone says which is picked.
   final bool marker;
 
+  /// One of a set where picking one unpicks the others (durations, presets),
+  /// announced to screen readers like a radio button.
+  final bool exclusive;
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label: label,
       selected: selected,
       checked: marker ? selected : null,
-      inMutuallyExclusiveGroup: !marker,
+      inMutuallyExclusiveGroup: exclusive,
       button: true,
       // The marker text is hidden from screen readers, so the tap has to be
       // put back on this node or the chip can't be activated.
@@ -243,4 +248,58 @@ String formatUntil(DateTime until, DateTime now) {
   }
   const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   return '${names[until.weekday - 1]} ${formatClock(until)}';
+}
+
+/// A screen opened on top of the tabs (editor, unlock, password): the app's
+/// header with a back button, then [child] scrolling below.
+class PushedPage extends StatelessWidget {
+  const PushedPage({super.key, required this.child, this.scroll = true});
+
+  final Widget child;
+
+  /// False when [child] scrolls itself (e.g. a ListView).
+  final bool scroll;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: AppColors.panel,
+            child: Row(
+              children: [
+                Semantics(
+                  label: 'back',
+                  button: true,
+                  excludeSemantics: true,
+                  onTap: () => Navigator.of(context).maybePop(),
+                  child: InkWell(
+                    key: const Key('page-back'),
+                    onTap: () => Navigator.of(context).maybePop(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Text('‹ back', style: monoStyle()),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: scroll
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: child,
+                  )
+                : child,
+          ),
+        ],
+      ),
+    ),
+  );
 }

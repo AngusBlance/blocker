@@ -55,6 +55,13 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   late Set<String> _sites;
   bool _saving = false;
 
+  /// All day is its own switch (rather than "start == end") so picking a
+  /// from time equal to the to time can't turn it on by accident, and turning
+  /// it off brings back the times from before.
+  late bool _allDay;
+  late int _timedStart;
+  late int _timedEnd;
+
   @override
   void initState() {
     super.initState();
@@ -64,8 +71,11 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
         : schedulePresets.first.plan;
     _name = TextEditingController(text: initial?.name ?? '');
     _days = {...plan.days};
-    _start = plan.start;
-    _end = plan.end;
+    _allDay = plan.allDay;
+    _timedStart = plan.allDay ? 9 * 60 : plan.start;
+    _timedEnd = plan.allDay ? 17 * 60 : plan.end;
+    _start = _timedStart;
+    _end = _timedEnd;
     _sites = {...?initial?.sites};
     _name.addListener(() => setState(() {}));
   }
@@ -76,16 +86,26 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     super.dispose();
   }
 
-  bool get _allDay => _start == _end;
+  /// start == end means all day in a schedule, so a timed range can't have
+  /// the same from and to.
+  bool get _sameTimes => !_allDay && _start == _end;
 
   bool get _valid =>
-      _days.isNotEmpty && _sites.isNotEmpty && _name.text.trim().isNotEmpty;
+      !_sameTimes &&
+      _days.isNotEmpty &&
+      _sites.any((name) => sites.any((s) => s.name == name)) &&
+      _name.text.trim().isNotEmpty;
 
   void _applyPreset(SchedulePreset preset) => setState(() {
     _days = {...preset.days};
-    _start = preset.start;
-    _end = preset.end;
-    if (_name.text.trim().isEmpty) _name.text = preset.label;
+    _allDay = false;
+    _start = _timedStart = preset.start;
+    _end = _timedEnd = preset.end;
+    // Fill the name in, or swap it if it's still another preset's name.
+    final name = _name.text.trim();
+    if (name.isEmpty || schedulePresets.any((p) => p.label == name)) {
+      _name.text = preset.label;
+    }
   });
 
   Future<void> _pick({required bool start}) async {
@@ -98,22 +118,45 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     setState(() {
       final value = picked.hour * 60 + picked.minute;
       if (start) {
-        _start = value;
+        _start = _timedStart = value;
       } else {
-        _end = value;
+        _end = _timedEnd = value;
       }
     });
   }
 
+  EveryPlan get _plan => _allDay
+      ? EveryPlan(days: _days, start: 0, end: 0)
+      : EveryPlan(days: _days, start: _start, end: _end);
+
+  /// Site names this app version doesn't know (e.g. removed from the list)
+  /// stay as they were, with their domains and apps, rather than vanish.
+  List<String> get _unknownSites => [
+    for (final name in widget.initial?.sites ?? const <String>[])
+      if (!sites.any((s) => s.name == name)) name,
+  ];
+
   Schedule _build() {
     final picked = sites.where((s) => _sites.contains(s.name)).toList();
-    final plan = EveryPlan(days: _days, start: _start, end: _end);
+    final plan = _plan;
     final initial = widget.initial;
+    final known = {
+      for (final s in sites) ...s.domains,
+      for (final s in sites) ...s.apps,
+    };
+    final keptDomains = [
+      for (final d in initial?.domains ?? const <String>[])
+        if (_unknownSites.isNotEmpty && !known.contains(d)) d,
+    ];
+    final keptApps = [
+      for (final a in initial?.apps ?? const <String>[])
+        if (_unknownSites.isNotEmpty && !known.contains(a)) a,
+    ];
     final fields = (
       name: _name.text.trim(),
-      sites: [for (final s in picked) s.name],
-      domains: [for (final s in picked) ...s.domains],
-      apps: [for (final s in picked) ...s.apps],
+      sites: [for (final s in picked) s.name, ..._unknownSites],
+      domains: [for (final s in picked) ...s.domains, ...keptDomains],
+      apps: [for (final s in picked) ...s.apps, ...keptApps],
     );
     if (initial != null) {
       return initial.copyWith(
@@ -134,20 +177,22 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     );
   }
 
-  Future<void> _save() async {
+  /// Runs save or delete with the buttons disabled meanwhile, so a double
+  /// tap can't start two.
+  Future<void> _busy(Future<void> Function() action) async {
     setState(() => _saving = true);
     try {
-      await widget.onSave(_build());
+      await action();
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  Future<void> _save() => _busy(() => widget.onSave(_build()));
+
   @override
   Widget build(BuildContext context) {
-    final plan = _days.isEmpty
-        ? null
-        : EveryPlan(days: _days, start: _start, end: _end);
+    final plan = _days.isEmpty || _sameTimes ? null : _plan;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -165,7 +210,9 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                     preset.label,
                     key: Key('preset-${preset.label}'),
                     marker: false,
+                    exclusive: true,
                     selected:
+                        !_allDay &&
                         _days.length == preset.days.length &&
                         _days.containsAll(preset.days) &&
                         _start == preset.start &&
@@ -224,6 +271,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                     label,
                     key: Key('days-$label'),
                     marker: false,
+                    exclusive: true,
                     selected:
                         _days.length == days.length && _days.containsAll(days),
                     onTap: () => setState(() => _days = {...days}),
@@ -259,13 +307,9 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
               key: const Key('all-day'),
               selected: _allDay,
               onTap: () => setState(() {
-                if (_allDay) {
-                  _start = 9 * 60;
-                  _end = 17 * 60;
-                } else {
-                  _start = 0;
-                  _end = 0;
-                }
+                _allDay = !_allDay;
+                _start = _timedStart;
+                _end = _timedEnd;
               }),
             ),
             if (plan != null)
@@ -292,9 +336,11 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
             ),
             if (!_valid)
               Muted(
-                _days.isEmpty
+                _sameTimes
+                    ? "from and to can't be the same time."
+                    : _days.isEmpty
                     ? 'pick at least one day.'
-                    : _sites.isEmpty
+                    : !_sites.any((name) => sites.any((s) => s.name == name))
                     ? 'pick at least one site.'
                     : 'give it a name.',
               ),
@@ -308,7 +354,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
               AppButton(
                 'delete',
                 key: const Key('delete-schedule'),
-                onPressed: _saving ? null : widget.onDelete,
+                onPressed: _saving ? null : () => _busy(widget.onDelete!),
               ),
           ],
         ),
@@ -344,6 +390,7 @@ class _DayChip extends StatelessWidget {
     label: _names[day - 1],
     selected: selected,
     button: true,
+    onTap: onTap,
     excludeSemantics: true,
     child: AspectRatio(
       aspectRatio: 1,
