@@ -3,6 +3,7 @@ import 'package:blocker_flutter/schedule.dart';
 import 'package:blocker_flutter/screens/schedules_screen.dart';
 import 'package:blocker_flutter/sites.dart';
 import 'package:blocker_flutter/theme.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,10 +35,9 @@ final gym = every('gym', {6}, 480, 540, enabled: false);
 /// Owns the Blocker like the real app does, so its refresh timer is
 /// cancelled when the test's widget tree goes away.
 class _Host extends StatefulWidget {
-  const _Host({required this.backend, required this.pickTime});
+  const _Host({required this.backend});
 
   final FakeBackend backend;
-  final Future<TimeOfDay?> Function(BuildContext, TimeOfDay) pickTime;
 
   @override
   State<_Host> createState() => _HostState();
@@ -59,9 +59,8 @@ class _HostState extends State<_Host> {
     home: Scaffold(
       body: ListenableBuilder(
         listenable: blocker,
-        builder: (context, _) => SingleChildScrollView(
-          child: SchedulesScreen(blocker: blocker, pickTime: widget.pickTime),
-        ),
+        builder: (context, _) =>
+            SingleChildScrollView(child: SchedulesScreen(blocker: blocker)),
       ),
     ),
   );
@@ -69,7 +68,6 @@ class _HostState extends State<_Host> {
 
 Future<FakeBackend> pumpSchedules(
   WidgetTester tester, {
-  List<TimeOfDay> picks = const [],
   List<Schedule>? schedules,
   FakeBackend? backend,
 }) async {
@@ -77,17 +75,10 @@ Future<FakeBackend> pumpSchedules(
   backend
     ..clock = (() => now)
     ..savedSchedules = schedules ?? [work, evening, gym];
-  final queue = [...picks];
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.6;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(
-    _Host(
-      backend: backend,
-      pickTime: (context, initial) async =>
-          queue.isEmpty ? null : queue.removeAt(0),
-    ),
-  );
+  await tester.pumpWidget(_Host(backend: backend));
   await tester.pumpAndSettle();
   return backend;
 }
@@ -96,6 +87,20 @@ Future<void> tapKey(WidgetTester tester, String key) async {
   await tester.ensureVisible(find.byKey(Key(key)));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(Key(key)));
+  await tester.pumpAndSettle();
+}
+
+/// Opens [key]'s time wheel and turns it to [hour]:[minute].
+Future<void> setWheel(
+  WidgetTester tester,
+  String key,
+  int hour,
+  int minute,
+) async {
+  await tapKey(tester, key);
+  tester
+      .widget<CupertinoDatePicker>(find.byKey(const Key('time-wheel')))
+      .onDateTimeChanged(DateTime(2000, 1, 1, hour, minute));
   await tester.pumpAndSettle();
 }
 
@@ -168,17 +173,11 @@ void main() {
   testWidgets('editing days and times from the list saves the right plan', (
     tester,
   ) async {
-    final backend = await pumpSchedules(
-      tester,
-      picks: [
-        const TimeOfDay(hour: 22, minute: 0),
-        const TimeOfDay(hour: 6, minute: 30),
-      ],
-    );
+    final backend = await pumpSchedules(tester);
     await tapKey(tester, 'schedule-evening');
     await tapKey(tester, 'days-weekends');
-    await tapKey(tester, 'time-from');
-    await tapKey(tester, 'time-to');
+    await setWheel(tester, 'time-from', 22, 0);
+    await setWheel(tester, 'time-to', 6, 30);
     await tapKey(tester, 'save-schedule');
     expect(
       backend.savedSchedules[1].plan,

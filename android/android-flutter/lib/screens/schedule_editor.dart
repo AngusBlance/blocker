@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../backend.dart';
@@ -7,22 +8,6 @@ import '../sites.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'app_picker.dart';
-
-/// Picks a time of day; the system clock picker in the app, a stub in tests.
-typedef TimePicker = Future<TimeOfDay?> Function(
-  BuildContext context,
-  TimeOfDay initial,
-);
-
-Future<TimeOfDay?> systemTimePicker(BuildContext context, TimeOfDay initial) =>
-    showTimePicker(
-      context: context,
-      initialTime: initial,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
-      ),
-    );
 
 /// Creates or edits a recurring schedule: presets for the common cases, then
 /// name, days, from–to and sites. [onSave] gets the finished schedule (same
@@ -34,7 +19,6 @@ class ScheduleEditor extends StatefulWidget {
     required this.newId,
     required this.onSave,
     this.onDelete,
-    this.pickTime = systemTimePicker,
     this.loadApps,
   });
 
@@ -44,7 +28,6 @@ class ScheduleEditor extends StatefulWidget {
   final String Function() newId;
   final Future<void> Function(Schedule schedule) onSave;
   final Future<void> Function()? onDelete;
-  final TimePicker pickTime;
 
   /// The phone's apps, for "send me to an app". Without it that choice is
   /// hidden.
@@ -67,6 +50,9 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
   late int _end;
   late Set<String> _sites;
   bool _saving = false;
+
+  /// Which time's wheel is open under the from/to row, if either.
+  _TimeEnd? _openTime;
 
   /// All day is its own switch (rather than "start == end") so picking a
   /// from time equal to the to time can't turn it on by accident, and turning
@@ -147,6 +133,7 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
       _name.text.trim().isNotEmpty;
 
   void _applyPreset(SchedulePreset preset) => setState(() {
+    _openTime = null; // an open wheel would still show the old time
     _days = {...preset.days};
     _allDay = false;
     _start = _timedStart = preset.start;
@@ -158,22 +145,16 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
     }
   });
 
-  Future<void> _pick({required bool start}) async {
-    final minute = start ? _start : _end;
-    final picked = await widget.pickTime(
-      context,
-      TimeOfDay(hour: minute ~/ 60, minute: minute % 60),
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      final value = picked.hour * 60 + picked.minute;
-      if (start) {
-        _start = _timedStart = value;
-      } else {
-        _end = _timedEnd = value;
-      }
-    });
-  }
+  void _toggleWheel(_TimeEnd end) =>
+      setState(() => _openTime = _openTime == end ? null : end);
+
+  void _setTime(_TimeEnd end, int minute) => setState(() {
+    if (end == _TimeEnd.from) {
+      _start = _timedStart = minute;
+    } else {
+      _end = _timedEnd = minute;
+    }
+  });
 
   EveryPlan get _plan => _allDay
       ? EveryPlan(days: _days, start: 0, end: 0)
@@ -354,7 +335,8 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                     label: 'from',
                     minute: _start,
                     enabled: !_allDay,
-                    onTap: () => _pick(start: true),
+                    open: _openTime == _TimeEnd.from,
+                    onTap: () => _toggleWheel(_TimeEnd.from),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -364,17 +346,26 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                     label: 'to',
                     minute: _end,
                     enabled: !_allDay,
-                    onTap: () => _pick(start: false),
+                    open: _openTime == _TimeEnd.to,
+                    onTap: () => _toggleWheel(_TimeEnd.to),
                   ),
                 ),
               ],
             ),
+            if (_openTime case final end? when !_allDay)
+              _TimeWheel(
+                // A new wheel for each end, so it starts at that end's time.
+                key: ValueKey(end),
+                minute: end == _TimeEnd.from ? _start : _end,
+                onChanged: (minute) => _setTime(end, minute),
+              ),
             SquareChip(
               'all day',
               key: const Key('all-day'),
               selected: _allDay,
               onTap: () => setState(() {
                 _allDay = !_allDay;
+                _openTime = null;
                 _start = _timedStart;
                 _end = _timedEnd;
               }),
@@ -386,21 +377,28 @@ class _ScheduleEditorState extends State<ScheduleEditor> {
                 style: monoStyle(color: AppColors.accent, bold: true),
               ),
             const Muted('sites'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final site in sites)
-                  SquareChip(
-                    site.name,
-                    key: Key('site-chip-${site.name}'),
-                    selected: _sites.contains(site.name),
-                    onTap: () => setState(() {
-                      if (!_sites.remove(site.name)) _sites.add(site.name);
-                    }),
-                  ),
-              ],
-            ),
+            // An even grid, two to a row, so the sites line up.
+            for (var row = 0; row < sites.length; row += 2)
+              Row(
+                children: [
+                  for (var i = row; i < row + 2; i++) ...[
+                    if (i > row) const SizedBox(width: 8),
+                    Expanded(
+                      child: i < sites.length
+                          ? SquareChip(
+                              sites[i].name,
+                              key: Key('site-chip-${sites[i].name}'),
+                              selected: _sites.contains(sites[i].name),
+                              onTap: () => setState(() {
+                                final name = sites[i].name;
+                                if (!_sites.remove(name)) _sites.add(name);
+                              }),
+                            )
+                          : const SizedBox(),
+                    ),
+                  ],
+                ],
+              ),
             const Muted('when blocked'),
             Wrap(
               spacing: 8,
@@ -541,18 +539,70 @@ class _DayChip extends StatelessWidget {
   );
 }
 
+enum _TimeEnd { from, to }
+
+/// A scroll wheel for a time of day (Flutter's own Cupertino picker), 24
+/// hour, in 5-minute steps, or 1-minute ones if the time isn't on a 5.
+///
+/// The picker only reads its start time and step when it's created, so both
+/// are fixed for as long as this wheel is open; anything that changes the
+/// time from outside closes the wheel instead.
+class _TimeWheel extends StatefulWidget {
+  const _TimeWheel({super.key, required this.minute, required this.onChanged});
+
+  final int minute;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_TimeWheel> createState() => _TimeWheelState();
+}
+
+class _TimeWheelState extends State<_TimeWheel> {
+  late final int _start = widget.minute;
+  late final int _step = _start % 5 == 0 ? 5 : 1;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 180,
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      border: Border.all(color: AppColors.accent),
+    ),
+    child: CupertinoTheme(
+      data: CupertinoThemeData(
+        brightness: Brightness.dark,
+        textTheme: CupertinoTextThemeData(
+          dateTimePickerTextStyle: monoStyle(size: 22),
+        ),
+      ),
+      child: CupertinoDatePicker(
+        key: const Key('time-wheel'),
+        mode: CupertinoDatePickerMode.time,
+        use24hFormat: true,
+        minuteInterval: _step,
+        initialDateTime: DateTime(2000, 1, 1, _start ~/ 60, _start % 60),
+        onDateTimeChanged: (t) => widget.onChanged(t.hour * 60 + t.minute),
+      ),
+    ),
+  );
+}
+
 class _TimeButton extends StatelessWidget {
   const _TimeButton({
     super.key,
     required this.label,
     required this.minute,
     required this.enabled,
+    required this.open,
     required this.onTap,
   });
 
   final String label;
   final int minute;
   final bool enabled;
+
+  /// Its wheel is showing.
+  final bool open;
   final VoidCallback onTap;
 
   @override
@@ -560,8 +610,8 @@ class _TimeButton extends StatelessWidget {
     opacity: enabled ? 1 : 0.35,
     child: Material(
       color: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        side: BorderSide(color: AppColors.border),
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: open ? AppColors.accent : AppColors.border),
       ),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -572,7 +622,11 @@ class _TimeButton extends StatelessWidget {
               Text(label, style: monoStyle(color: AppColors.muted, size: 12)),
               Text(
                 formatMinute(minute),
-                style: monoStyle(size: 22, bold: true),
+                style: monoStyle(
+                  size: 22,
+                  bold: true,
+                  color: open ? AppColors.accent : AppColors.foreground,
+                ),
               ),
             ],
           ),
