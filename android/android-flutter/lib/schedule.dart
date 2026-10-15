@@ -2,17 +2,24 @@
 /// hands them to androidlib as JSON; androidlib's Schedule.kt decides when one
 /// is active, since the accessibility service enforces it. The JSON format
 /// must match Schedule.kt (both are tested against the same fixture).
+///
+/// Times are kept to whole milliseconds, which is all the JSON stores, so a
+/// schedule always equals itself after being saved and loaded.
 class Schedule {
-  const Schedule({
+  Schedule({
     required this.id,
     required this.name,
-    required this.sites,
-    required this.domains,
-    required this.apps,
+    required List<String> sites,
+    required List<String> domains,
+    required List<String> apps,
     required this.plan,
     this.action = const BlockAction(),
     this.enabled = true,
-  });
+    DateTime? pausedUntil,
+  }) : sites = List.unmodifiable(sites),
+       domains = List.unmodifiable(domains),
+       apps = List.unmodifiable(apps),
+       pausedUntil = pausedUntil == null ? null : _toMillis(pausedUntil);
 
   final String id;
   final String name;
@@ -25,20 +32,31 @@ class Schedule {
   final ScheduleAction action;
   final bool enabled;
 
+  /// Ended early (with the unlock password) until this time. For an `every`
+  /// schedule that's the end of the current occurrence; it comes back next
+  /// time.
+  final DateTime? pausedUntil;
+
   Schedule copyWith({
     String? name,
+    List<String>? sites,
+    List<String>? domains,
+    List<String>? apps,
     SchedulePlan? plan,
     ScheduleAction? action,
     bool? enabled,
+    DateTime? pausedUntil,
+    bool clearPause = false,
   }) => Schedule(
     id: id,
     name: name ?? this.name,
-    sites: sites,
-    domains: domains,
-    apps: apps,
+    sites: sites ?? this.sites,
+    domains: domains ?? this.domains,
+    apps: apps ?? this.apps,
     plan: plan ?? this.plan,
     action: action ?? this.action,
     enabled: enabled ?? this.enabled,
+    pausedUntil: clearPause ? null : pausedUntil ?? this.pausedUntil,
   );
 
   Map<String, Object?> toJson() => {
@@ -50,17 +68,22 @@ class Schedule {
     'plan': plan.toJson(),
     'action': action.toJson(),
     'enabled': enabled,
+    if (pausedUntil != null) 'pausedUntil': pausedUntil!.millisecondsSinceEpoch,
   };
 
+  /// Throws [FormatException] for anything malformed.
   factory Schedule.fromJson(Map<String, Object?> json) => Schedule(
-    id: json['id']! as String,
-    name: json['name']! as String,
-    sites: _strings(json['sites']),
-    domains: _strings(json['domains']),
-    apps: _strings(json['apps']),
-    plan: SchedulePlan.fromJson(json['plan']! as Map<String, Object?>),
-    action: ScheduleAction.fromJson(json['action']! as Map<String, Object?>),
-    enabled: json['enabled'] as bool? ?? true,
+    id: _get<String>(json, 'id'),
+    name: _get<String>(json, 'name'),
+    sites: _strings(json, 'sites'),
+    domains: _strings(json, 'domains'),
+    apps: _strings(json, 'apps'),
+    plan: SchedulePlan.fromJson(_get<Map<String, Object?>>(json, 'plan')),
+    action: ScheduleAction.fromJson(_get<Map<String, Object?>>(json, 'action')),
+    enabled: json.containsKey('enabled') ? _get<bool>(json, 'enabled') : true,
+    pausedUntil: json.containsKey('pausedUntil')
+        ? DateTime.fromMillisecondsSinceEpoch(_get<int>(json, 'pausedUntil'))
+        : null,
   );
 
   @override
@@ -73,10 +96,19 @@ class Schedule {
       _listEquals(other.apps, apps) &&
       other.plan == plan &&
       other.action == action &&
-      other.enabled == enabled;
+      other.enabled == enabled &&
+      other.pausedUntil?.millisecondsSinceEpoch ==
+          pausedUntil?.millisecondsSinceEpoch;
 
   @override
-  int get hashCode => Object.hash(id, name, plan, action, enabled);
+  int get hashCode => Object.hash(
+    id,
+    name,
+    plan,
+    action,
+    enabled,
+    pausedUntil?.millisecondsSinceEpoch,
+  );
 }
 
 sealed class SchedulePlan {
@@ -84,27 +116,36 @@ sealed class SchedulePlan {
 
   Map<String, Object?> toJson();
 
-  factory SchedulePlan.fromJson(Map<String, Object?> json) =>
-      switch (json['type']) {
-        'for' => ForPlan(
-          startsAt: DateTime.fromMillisecondsSinceEpoch(
-            json['startsAt']! as int,
-          ),
-          endsAt: DateTime.fromMillisecondsSinceEpoch(json['endsAt']! as int),
-        ),
-        'every' => EveryPlan(
-          days: {for (final d in json['days']! as List) d as int},
-          start: json['start']! as int,
-          end: json['end']! as int,
-        ),
-        final type => throw ArgumentError('unknown plan type $type'),
-      };
+  /// Throws [FormatException] for anything malformed.
+  factory SchedulePlan.fromJson(
+    Map<String, Object?> json,
+  ) => switch (_get<String>(json, 'type')) {
+    'for' => ForPlan(
+      startsAt: DateTime.fromMillisecondsSinceEpoch(
+        _get<int>(json, 'startsAt'),
+      ),
+      endsAt: DateTime.fromMillisecondsSinceEpoch(_get<int>(json, 'endsAt')),
+    ),
+    'every' => EveryPlan(
+      days: {
+        for (final d in _get<List<Object?>>(json, 'days'))
+          d is int
+              ? d
+              : throw FormatException('days should be whole numbers, got $d'),
+      },
+      start: _get<int>(json, 'start'),
+      end: _get<int>(json, 'end'),
+    ),
+    final type => throw FormatException('unknown plan type $type'),
+  };
 }
 
 /// "Block now for…": from [startsAt] until [endsAt].
 class ForPlan extends SchedulePlan {
-  ForPlan({required this.startsAt, required this.endsAt}) {
-    if (!endsAt.isAfter(startsAt)) {
+  ForPlan({required DateTime startsAt, required DateTime endsAt})
+    : startsAt = _toMillis(startsAt),
+      endsAt = _toMillis(endsAt) {
+    if (!this.endsAt.isAfter(this.startsAt)) {
       throw ArgumentError('endsAt must be after startsAt');
     }
   }
@@ -136,7 +177,8 @@ class ForPlan extends SchedulePlan {
 /// in minutes after midnight. end < start runs overnight; start == end means
 /// the whole day.
 class EveryPlan extends SchedulePlan {
-  EveryPlan({required this.days, required this.start, required this.end}) {
+  EveryPlan({required Set<int> days, required this.start, required this.end})
+    : days = Set.unmodifiable(days) {
     if (days.isEmpty) throw ArgumentError('pick at least one day');
     if (days.any((d) => d < 1 || d > 7)) {
       throw ArgumentError('days are 1 (Mon) to 7 (Sun)');
@@ -181,12 +223,13 @@ sealed class ScheduleAction {
 
   Map<String, Object?> toJson();
 
+  /// Throws [FormatException] for anything malformed.
   factory ScheduleAction.fromJson(Map<String, Object?> json) =>
-      switch (json['type']) {
+      switch (_get<String>(json, 'type')) {
         'block' => const BlockAction(),
-        'message' => MessageAction(json['text']! as String),
-        'redirect' => RedirectAction(json['package']! as String),
-        final type => throw ArgumentError('unknown action type $type'),
+        'message' => MessageAction(_get<String>(json, 'text')),
+        'redirect' => RedirectAction(_get<String>(json, 'package')),
+        final type => throw FormatException('unknown action type $type'),
       };
 }
 
@@ -235,8 +278,20 @@ class RedirectAction extends ScheduleAction {
   int get hashCode => packageName.hashCode;
 }
 
-List<String> _strings(Object? list) => [
-  for (final s in list! as List) s as String,
+DateTime _toMillis(DateTime t) => DateTime.fromMillisecondsSinceEpoch(
+  t.millisecondsSinceEpoch,
+  isUtc: t.isUtc,
+);
+
+T _get<T>(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value is! T) throw FormatException('$key should be $T, got $value');
+  return value;
+}
+
+List<String> _strings(Map<String, Object?> json, String key) => [
+  for (final s in _get<List<Object?>>(json, key))
+    s is String ? s : throw FormatException('$key should hold strings, got $s'),
 ];
 
 bool _listEquals(List<String> a, List<String> b) {

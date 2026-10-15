@@ -21,6 +21,10 @@ void main() {
     expect(schedules.keys, ['work', 'bedtime', 'focus', 'weekend']);
 
     final work = schedules['work']!;
+    expect(
+      work.pausedUntil,
+      DateTime.fromMillisecondsSinceEpoch(1760000000000),
+    );
     expect(work.plan, EveryPlan(days: {1, 2, 3, 4, 5}, start: 540, end: 1020));
     expect(work.action, const BlockAction());
     expect(work.domains, ['youtube.com', 'googlevideo.com']);
@@ -83,14 +87,14 @@ void main() {
         ...json,
         'plan': {'type': 'sometimes'},
       }),
-      throwsArgumentError,
+      throwsFormatException,
     );
     expect(
       () => Schedule.fromJson({
         ...json,
         'action': {'type': 'explode'},
       }),
-      throwsArgumentError,
+      throwsFormatException,
     );
   });
 
@@ -100,5 +104,77 @@ void main() {
     expect(off.id, work.id);
     expect(off.enabled, isFalse);
     expect(off.plan, work.plan);
+  });
+
+  test('times keep only whole milliseconds, so a schedule equals itself after saving', () {
+    final now = DateTime.now();
+    final plan = ForPlan(
+      startsAt: now,
+      endsAt: now.add(const Duration(hours: 1)),
+    );
+    expect(plan.startsAt.microsecond, 0);
+    final schedule = loadFixture()[2].copyWith(plan: plan, pausedUntil: now);
+    final reloaded = Schedule.fromJson(
+      jsonDecode(jsonEncode(schedule.toJson())) as Map<String, Object?>,
+    );
+    expect(reloaded, schedule);
+    expect(reloaded.hashCode, schedule.hashCode);
+  });
+
+  test(
+    'a sub-millisecond "for" plan is rejected instead of saving as zero length',
+    () {
+      final t = DateTime.fromMicrosecondsSinceEpoch(1760000000000000);
+      expect(
+        () => ForPlan(
+          startsAt: t,
+          endsAt: t.add(const Duration(microseconds: 300)),
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
+
+  test('malformed values throw FormatException', () {
+    final base = loadFixture().first.toJson();
+    Map<String, Object?> plan(Map<String, Object?> change) => {
+      ...base,
+      'plan': {...base['plan']! as Map<String, Object?>, ...change},
+    };
+    for (final bad in <Map<String, Object?>>[
+      {...base, 'id': 123},
+      {...base, 'name': null},
+      {...base}..remove('domains'),
+      {
+        ...base,
+        'apps': [1, 2],
+      },
+      {...base, 'enabled': 'yes'},
+      {...base, 'pausedUntil': 'soon'},
+      plan({'start': 540.5}),
+      plan({'start': '540'}),
+      plan({
+        'days': ['1'],
+      }),
+      {...base, 'plan': 'every'},
+    ]) {
+      expect(
+        () => Schedule.fromJson(bad),
+        throwsFormatException,
+        reason: '$bad',
+      );
+    }
+  });
+
+  test('lists and days cannot be changed after creation', () {
+    final work = loadFixture().first;
+    expect(() => work.sites.add('x'), throwsUnsupportedError);
+    expect(() => (work.plan as EveryPlan).days.add(6), throwsUnsupportedError);
+  });
+
+  test('copyWith can clear a pause', () {
+    final work = loadFixture().first;
+    expect(work.pausedUntil, isNotNull);
+    expect(work.copyWith(clearPause: true).pausedUntil, isNull);
   });
 }

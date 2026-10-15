@@ -1,5 +1,6 @@
 package com.angusblance.androidlib
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,11 +25,21 @@ class ScheduleTest {
 
   private fun utc(instant: String): ZonedDateTime = Instant.parse(instant).atZone(london)
 
-  private val fixture: List<Schedule> by lazy {
-    Schedule.listFromJson(javaClass.classLoader!!.getResource("schedules.json")!!.readText())
+  private val fixtureText: String by lazy {
+    javaClass.classLoader!!.getResource("schedules.json")!!.readText()
   }
 
+  private val fixture: List<Schedule> by lazy { Schedule.listFromJson(fixtureText) }
+
   private fun fixture(id: String) = fixture.single { it.id == id }
+
+  // JSON as plain Kotlin values, keeping types (Int vs Double vs String), so
+  // two documents compare equal only if they say exactly the same thing.
+  private fun plain(value: Any?): Any? = when (value) {
+    is JSONObject -> value.keys().asSequence().associateWith { plain(value.get(it)) }
+    is JSONArray -> (0 until value.length()).map { plain(value.get(it)) }
+    else -> value
+  }
 
   private fun every(vararg days: java.time.DayOfWeek, start: Int, end: Int) = Schedule(
     id = "t",
@@ -152,5 +163,43 @@ class ScheduleTest {
     val friday = every(FRIDAY, start = 22 * 60, end = 2 * 60)
     assertTrue(friday.isActive(at(17, "01:00"))) // Saturday early hours
     assertFalse(friday.isActive(at(18, "01:00"))) // Sunday early hours
+  }
+
+  @Test
+  fun `writes exactly the fixture's JSON, types included`() {
+    // Dart reads what this writes: a number written as a string or a double
+    // would break the app even if it round trips here.
+    assertEquals(plain(JSONArray(fixtureText)), plain(JSONArray(Schedule.listToJson(fixture))))
+  }
+
+  @Test
+  fun `paused schedules are off until pausedUntil, then back`() {
+    val monday9 = at(12, "09:00")
+    val work = fixture("work").copy(pausedUntil = at(12, "17:00").toInstant().toEpochMilli())
+    assertFalse(work.isActive(monday9))
+    assertTrue(work.isActive(at(13, "09:00"))) // Tuesday: paused only Monday's occurrence
+    // The fixture's pause is long past, so it changes nothing.
+    assertTrue(fixture("work").isActive(monday9))
+  }
+
+  @Test
+  fun `malformed values are rejected as IllegalArgumentException`() {
+    fun rejects(change: (JSONObject) -> Unit) {
+      val json = JSONObject(fixture("work").toJson().toString())
+      change(json)
+      assertThrows(IllegalArgumentException::class.java) { Schedule.fromJson(json) }
+    }
+    rejects { it.put("id", 123) }
+    rejects { it.put("name", JSONObject.NULL) }
+    rejects { it.remove("domains") }
+    rejects { it.put("apps", JSONArray(listOf(1, 2))) }
+    rejects { it.put("enabled", "yes") }
+    rejects { it.put("pausedUntil", "soon") }
+    rejects { it.getJSONObject("plan").put("start", 540.5) }
+    rejects { it.getJSONObject("plan").put("start", "540") }
+    rejects { it.getJSONObject("plan").put("days", JSONArray(listOf(8))) }
+    rejects { it.getJSONObject("plan").put("days", JSONArray(listOf(0))) }
+    rejects { it.put("plan", "every") }
+    assertThrows(IllegalArgumentException::class.java) { Schedule.listFromJson("not json") }
   }
 }

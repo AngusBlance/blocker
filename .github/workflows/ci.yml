@@ -122,6 +122,8 @@ jobs:
       - name: Test
         run: flutter test
 
+      - uses: gradle/actions/setup-gradle@v6
+
       # androidlib's JVM unit tests (schedule rules etc.). --config-only
       # generates the Gradle wrapper without building the app.
       - name: Kotlin unit tests

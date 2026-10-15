@@ -1,6 +1,7 @@
 package com.angusblance.androidlib
 
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.ZonedDateTime
@@ -19,6 +20,10 @@ data class Schedule(
   val plan: Plan,
   val action: Action = Action.Block,
   val enabled: Boolean = true,
+  // Ended early (with the unlock password) until this time, epoch millis. For
+  // an "every" schedule that's the end of the current occurrence, so it comes
+  // back next time; for a "for" schedule it's simply its end.
+  val pausedUntil: Long? = null,
 ) {
   sealed interface Plan {
     // Block now for a while: active from startsAt (inclusive) to endsAt
@@ -65,6 +70,7 @@ data class Schedule(
 
   fun isActive(now: ZonedDateTime): Boolean {
     if (!enabled) return false
+    if (pausedUntil != null && now.toInstant().toEpochMilli() < pausedUntil) return false
     return when (plan) {
       is Plan.For -> now.toInstant().toEpochMilli().let { it >= plan.startsAt && it < plan.endsAt }
       is Plan.Every -> plan.covers(now)
@@ -80,18 +86,28 @@ data class Schedule(
     .put("plan", planJson(plan))
     .put("action", actionJson(action))
     .put("enabled", enabled)
+    .apply { pausedUntil?.let { put("pausedUntil", it) } }
 
   companion object {
-    fun fromJson(json: JSONObject): Schedule = Schedule(
-      id = json.getString("id"),
-      name = json.getString("name"),
-      sites = json.getJSONArray("sites").strings(),
-      domains = json.getJSONArray("domains").strings(),
-      apps = json.getJSONArray("apps").strings(),
-      plan = planFrom(json.getJSONObject("plan")),
-      action = actionFrom(json.getJSONObject("action")),
-      enabled = json.optBoolean("enabled", true),
-    )
+    // Strict on types: Android's built-in org.json would otherwise turn a
+    // number into "123" or null into "null" without complaint. Anything
+    // malformed is an IllegalArgumentException, so callers (the accessibility
+    // service) can skip one bad schedule without crashing.
+    fun fromJson(json: JSONObject): Schedule = try {
+      Schedule(
+        id = json.str("id"),
+        name = json.str("name"),
+        sites = json.strings("sites"),
+        domains = json.strings("domains"),
+        apps = json.strings("apps"),
+        plan = planFrom(json.obj("plan")),
+        action = actionFrom(json.obj("action")),
+        enabled = if (json.has("enabled")) json.bool("enabled") else true,
+        pausedUntil = if (json.has("pausedUntil")) json.long("pausedUntil") else null,
+      )
+    } catch (e: JSONException) {
+      throw IllegalArgumentException("malformed schedule: ${e.message}", e)
+    }
 
     fun listToJson(schedules: List<Schedule>): String = JSONArray(
       schedules.map {
@@ -99,9 +115,11 @@ data class Schedule(
       },
     ).toString()
 
-    fun listFromJson(text: String): List<Schedule> {
+    fun listFromJson(text: String): List<Schedule> = try {
       val array = JSONArray(text)
-      return (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+      (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+    } catch (e: JSONException) {
+      throw IllegalArgumentException("malformed schedule list: ${e.message}", e)
     }
 
     // Days are ISO numbers: 1 = Monday … 7 = Sunday.
@@ -118,15 +136,19 @@ data class Schedule(
         .put("end", plan.end)
     }
 
-    private fun planFrom(json: JSONObject): Plan = when (val type = json.getString("type")) {
-      "for" -> Plan.For(json.getLong("startsAt"), json.getLong("endsAt"))
+    private fun planFrom(json: JSONObject): Plan = when (val type = json.str("type")) {
+      "for" -> Plan.For(json.long("startsAt"), json.long("endsAt"))
 
       "every" -> {
-        val days = json.getJSONArray("days")
+        val days = json.array("days")
         Plan.Every(
-          days = (0 until days.length()).map { DayOfWeek.of(days.getInt(it)) }.toSet(),
-          start = json.getInt("start"),
-          end = json.getInt("end"),
+          days = (0 until days.length()).map { i ->
+            val day = days.get(i)
+            require(day is Int && day in 1..7) { "days are 1 (Mon) to 7 (Sun), got $day" }
+            DayOfWeek.of(day)
+          }.toSet(),
+          start = json.int("start"),
+          end = json.int("end"),
         )
       }
 
@@ -139,13 +161,48 @@ data class Schedule(
       is Action.Redirect -> JSONObject().put("type", "redirect").put("package", action.packageName)
     }
 
-    private fun actionFrom(json: JSONObject): Action = when (val type = json.getString("type")) {
+    private fun actionFrom(json: JSONObject): Action = when (val type = json.str("type")) {
       "block" -> Action.Block
-      "message" -> Action.Message(json.getString("text"))
-      "redirect" -> Action.Redirect(json.getString("package"))
+      "message" -> Action.Message(json.str("text"))
+      "redirect" -> Action.Redirect(json.str("package"))
       else -> throw IllegalArgumentException("unknown action type $type")
     }
 
-    private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
+    private inline fun <reified T> JSONObject.typed(key: String): T {
+      val value = if (has(key)) get(key) else null
+      require(value is T) { "$key should be ${T::class.simpleName}, got $value" }
+      return value
+    }
+
+    private fun JSONObject.str(key: String): String = typed(key)
+
+    private fun JSONObject.bool(key: String): Boolean = typed(key)
+
+    private fun JSONObject.obj(key: String): JSONObject = typed(key)
+
+    private fun JSONObject.array(key: String): JSONArray = typed(key)
+
+    // Whole numbers only: 540.0 or "540" is a malformed file, not a time.
+    private fun JSONObject.long(key: String): Long =
+      when (val value = if (has(key)) get(key) else null) {
+        is Int -> value.toLong()
+        is Long -> value
+        else -> throw IllegalArgumentException("$key should be a whole number, got $value")
+      }
+
+    private fun JSONObject.int(key: String): Int {
+      val value = long(key)
+      require(value in Int.MIN_VALUE..Int.MAX_VALUE) { "$key out of range: $value" }
+      return value.toInt()
+    }
+
+    private fun JSONObject.strings(key: String): List<String> {
+      val array = array(key)
+      return (0 until array.length()).map { i ->
+        val value = array.get(i)
+        require(value is String) { "$key[$i] should be a string, got $value" }
+        value
+      }
+    }
   }
 }

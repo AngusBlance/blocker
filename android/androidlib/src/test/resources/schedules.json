@@ -7,7 +7,8 @@
     "apps": ["com.google.android.youtube"],
     "plan": { "type": "every", "days": [1, 2, 3, 4, 5], "start": 540, "end": 1020 },
     "action": { "type": "block" },
-    "enabled": true
+    "enabled": true,
+    "pausedUntil": 1760000000000
   },
   {
     "id": "bedtime",
