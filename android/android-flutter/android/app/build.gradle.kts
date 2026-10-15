@@ -11,6 +11,9 @@ android {
     // android/androidlib; MainActivity's method channel exposes it to Dart.
     sourceSets["main"].java.srcDir("../../../androidlib/src/main/java")
     sourceSets["main"].res.srcDir("../../../androidlib/src/main/res")
+    // androidlib's JVM unit tests (./gradlew :app:testDebugUnitTest).
+    sourceSets["test"].java.srcDir("../../../androidlib/src/test/java")
+    sourceSets["test"].resources.srcDir("../../../androidlib/src/test/resources")
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,7 +26,8 @@ android {
         applicationId = "com.angusblance.blocker.flutter"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // 26 (Android 8.0) for java.time, which schedules use.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -46,6 +50,12 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    // Android's org.json is a stub in JVM unit tests; use the real one.
+    testImplementation("org.json:json:20250517")
 }
 
 flutter {

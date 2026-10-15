@@ -1,0 +1,43 @@
+[
+  {
+    "id": "work",
+    "name": "Work",
+    "sites": ["YouTube"],
+    "domains": ["youtube.com", "googlevideo.com"],
+    "apps": ["com.google.android.youtube"],
+    "plan": { "type": "every", "days": [1, 2, 3, 4, 5], "start": 540, "end": 1020 },
+    "action": { "type": "block" },
+    "enabled": true,
+    "pausedUntil": 1760000000000
+  },
+  {
+    "id": "bedtime",
+    "name": "Bedtime",
+    "sites": ["TikTok", "Instagram"],
+    "domains": ["tiktok.com", "instagram.com"],
+    "apps": ["com.zhiliaoapp.musically", "com.instagram.android"],
+    "plan": { "type": "every", "days": [1, 2, 3, 4, 7], "start": 1320, "end": 420 },
+    "action": { "type": "message", "text": "go to bed" },
+    "enabled": true
+  },
+  {
+    "id": "focus",
+    "name": "Focus",
+    "sites": ["Netflix"],
+    "domains": ["netflix.com"],
+    "apps": ["com.netflix.mediaclient"],
+    "plan": { "type": "for", "startsAt": 1760000000000, "endsAt": 1760003600000 },
+    "action": { "type": "redirect", "package": "com.amazon.kindle" },
+    "enabled": true
+  },
+  {
+    "id": "weekend",
+    "name": "Weekend",
+    "sites": ["Facebook"],
+    "domains": ["facebook.com"],
+    "apps": ["com.facebook.katana", "com.facebook.lite"],
+    "plan": { "type": "every", "days": [6, 7], "start": 0, "end": 0 },
+    "action": { "type": "block" },
+    "enabled": false
+  }
+]
