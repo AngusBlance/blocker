@@ -1,4 +1,4 @@
-// Same list as blocklib/domain.py and the React Native app, grouped by site.
+// Same sites as blocklib/domain.py on the Mac, grouped by site.
 // Subdomains (m.youtube.com) are covered by the parent domain on Android.
 // `apps` are each site's Android app, blocked along with the site.
 class Site {

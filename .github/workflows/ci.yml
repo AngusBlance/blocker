@@ -67,35 +67,6 @@ jobs:
       - name: Lint and check formatting
         run: npm run lint
 
-  android-js:
-    name: android / JS/TS
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: android/package-lock.json
-
-      - run: npm ci
-
-      - name: Lint
-        run: npx eslint .
-
-      - name: Check formatting
-        run: npx prettier --check .
-
-      - name: Typecheck android-mobile
-        run: npx tsc --noEmit -p android-mobile
-
-      - name: Typecheck androidlib
-        run: npx tsc --noEmit -p androidlib
-
   android-kotlin:
     name: android / Kotlin
     runs-on: ubuntu-latest

@@ -1,16 +1,12 @@
 # android-flutter
 
-The Android app rebuilt in Flutter: same screens, look and setup flow as
-`android-mobile` (React Native), on the same Kotlin backend.
+The Android app, built in Flutter, on the Kotlin backend in `android/androidlib`.
 
 - **Backend**: `androidlib`'s Kotlin (the accessibility service, block screen
   and store) is compiled in straight from `android/androidlib`; see
-  `android/app/build.gradle.kts`. Only its Expo bridge, `AndroidlibModule.kt`,
-  is left out; `MainActivity.kt` exposes the same calls to Dart over a method
-  channel (`com.angusblance.blocker/backend`).
-- **App ID** `com.angusblance.blocker.flutter`, so it installs next to the
-  React Native app. Its accessibility service is separate and has to be turned
-  on by itself.
+  `android/app/build.gradle.kts`. `MainActivity.kt` exposes it to Dart over a
+  method channel (`com.angusblance.blocker/backend`).
+- **App ID** `com.angusblance.blocker.flutter`.
 
 ```sh
 flutter run                       # on a connected phone or emulator
