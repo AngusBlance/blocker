@@ -15,6 +15,7 @@ from textual.widgets import Footer, Header, Input, Static
 
 from blocker_tui import schedules as sched_ui
 from blocker_tui.installer import scheduler_installed
+from blocker_tui.schedule_editor import ScheduleEditor
 from blocklib import schedule_store
 from blocklib.core import HOSTS_FILE, HostsBlocker
 from blocklib.domain import known_domains
@@ -204,46 +205,6 @@ class ConfirmModal(ModalScreen):
         self.dismiss(yes)
 
 
-class PresetModal(ModalScreen):
-    """Pick a preset with j/k and enter. Dismisses with it, or None."""
-
-    BINDINGS = [
-        ("j", "move(1)", "Down"),
-        ("k", "move(-1)", "Up"),
-        ("enter", "pick", "Add"),
-        ("escape", "cancel", "Cancel"),
-    ]
-
-    index: reactive[int] = reactive(0)
-
-    def compose(self) -> ComposeResult:
-        yield Vertical(Static(id="preset-list"), id="dialog")
-
-    def on_mount(self) -> None:
-        self._render_list()
-
-    def watch_index(self) -> None:
-        if self.is_mounted:
-            self._render_list()
-
-    def _render_list(self) -> None:
-        lines = ["NEW SCHEDULE", "blocks every site at these times:", ""]
-        for i, p in enumerate(sched_ui.PRESETS):
-            cursor = ">" if i == self.index else " "
-            lines.append(f"{cursor} {p.label:<10} {sched_ui.format_plan(p.plan)}")
-        lines += ["", "  (enter) add   (esc) cancel"]
-        self.query_one("#preset-list", Static).update("\n".join(lines))
-
-    def action_move(self, delta: int) -> None:
-        self.index = min(max(self.index + delta, 0), len(sched_ui.PRESETS) - 1)
-
-    def action_pick(self) -> None:
-        self.dismiss(sched_ui.PRESETS[self.index])
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
-
-
 class BlockerApp(App):
     CSS = """
     Sidebar {
@@ -272,8 +233,40 @@ class BlockerApp(App):
         background: $surface;
         padding: 1 2;
     }
-    ConfirmModal, PresetModal {
+    ConfirmModal, ScheduleEditor {
         align: center middle;
+    }
+    #editor-dialog {
+        width: 72;
+        height: auto;
+        max-height: 90%;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #editor-dialog .label {
+        margin-top: 1;
+        color: $text-muted;
+    }
+    #editor-dialog .row {
+        height: auto;
+    }
+    #editor-dialog .row > * {
+        margin-right: 1;
+    }
+    #editor-dialog .inline {
+        width: auto;
+    }
+    #editor-dialog Input.time {
+        width: 7;
+    }
+    #summary {
+        margin-top: 1;
+        color: $accent;
+    }
+    #editor-error {
+        margin-top: 1;
+        color: $error;
     }
     #dialog {
         width: 64;
@@ -295,6 +288,7 @@ class BlockerApp(App):
         Binding("h", "focus_sidebar", "Focus sidebar"),
         Binding("b", "block_sites", "Block"),
         Binding("a", "add_schedule", "Add schedule", show=False),
+        Binding("t", "toggle_schedule", "On/off", show=False),
         Binding("e", "end_schedule_early", "End early", show=False),
         Binding("d", "delete_schedule", "Delete schedule", show=False),
         Binding("q", "quit", "Quit"),
@@ -446,7 +440,7 @@ class BlockerApp(App):
     def action_focus_content(self) -> None:
         if self.focus_pane == "content":
             if self.query_one(Content).section == "schedule":
-                self._toggle_selected_schedule()
+                self._edit_selected_schedule()
             else:
                 self._toggle_selected_site()
         else:
@@ -539,7 +533,9 @@ class BlockerApp(App):
         self._snap_schedule_cursor()
         self.query_one(Content).refresh(layout=True)
 
-    def _toggle_selected_schedule(self) -> None:
+    def action_toggle_schedule(self) -> None:
+        if not self._in_schedules():
+            return
         s = self._selected_schedule()
         if s is None:
             return
@@ -553,19 +549,39 @@ class BlockerApp(App):
 
         self._change_schedules(change, f"{s.name} turned {'on' if on else 'off'}.")
 
+    def _edit_selected_schedule(self) -> None:
+        s = self._selected_schedule()
+        if s is None:
+            return
+        if isinstance(s.plan, ForPlan):
+            self.notify("one-off blocks can't be edited; (e) ends one early.")
+            return
+
+        def saved(edited) -> None:
+            if edited is None:
+                return
+
+            def change(stored):
+                if not any(x.id == edited.id for x in stored):
+                    return [*stored, edited]  # deleted meanwhile: keep the edit
+                return [edited if x.id == edited.id else x for x in stored]
+
+            self._change_schedules(change, f"saved {edited.name}.")
+
+        self.push_screen(ScheduleEditor(s), saved)
+
     def action_add_schedule(self) -> None:
         if not self._in_schedules():
             return
 
-        def add(preset) -> None:
-            if preset is None:
+        def add(new) -> None:
+            if new is None:
                 return
-            new = sched_ui.new_schedule(preset)
             self._change_schedules(lambda stored: [*stored, new], f"added {new.name}.")
             if new.id in sched_ui.row_ids(load_schedules(), sched_ui.now()):
                 self.query_one(Content).schedule_id = new.id
 
-        self.push_screen(PresetModal(), add)
+        self.push_screen(ScheduleEditor(), add)
 
     def action_end_schedule_early(self) -> None:
         if not self._in_schedules():
