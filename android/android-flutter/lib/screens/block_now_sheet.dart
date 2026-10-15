@@ -133,6 +133,7 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
                     length.label,
                     key: Key('length-${length.label}'),
                     marker: false,
+                    exclusive: true,
                     selected: !_custom && _length.label == length.label,
                     onTap: () => setState(() {
                       _custom = false;
@@ -143,6 +144,7 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
                   'custom',
                   key: const Key('length-custom'),
                   marker: false,
+                  exclusive: true,
                   selected: _custom,
                   onTap: () => setState(() => _custom = true),
                 ),

@@ -3,23 +3,25 @@ import 'package:flutter/material.dart';
 import 'backend.dart';
 import 'blocker.dart';
 import 'screens/home.dart';
+import 'screens/schedules_screen.dart';
 import 'screens/settings.dart';
 import 'screens/sites.dart';
 import 'screens/unlock.dart';
 import 'sites.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 void main() {
   runApp(BlockerApp(backend: ChannelBackend()));
 }
 
-enum Tab { home, sites, unlock, settings }
+enum Tab { home, sites, schedules, settings }
 
 // Labels match the TUI's sidebar sections.
 const _tabs = [
   (tab: Tab.home, label: 'dashboard', icon: Icons.dashboard_outlined),
   (tab: Tab.sites, label: 'sites', icon: Icons.public_off),
-  (tab: Tab.unlock, label: 'unlock', icon: Icons.lock_open_outlined),
+  (tab: Tab.schedules, label: 'schedules', icon: Icons.schedule_outlined),
   (tab: Tab.settings, label: 'settings', icon: Icons.settings_outlined),
 ];
 
@@ -39,12 +41,21 @@ class _BlockerAppState extends State<BlockerApp> {
   late final Blocker blocker = Blocker(widget.backend, clock: widget.clock)
     ..load();
   Tab tab = Tab.home;
-  Site? pendingSite;
 
-  void go(Tab next) => setState(() {
-    pendingSite = null;
-    tab = next;
-  });
+  void go(Tab next) => setState(() => tab = next);
+
+  /// Unlocking is its own screen over the tabs, opened from sites.
+  void _unlock(BuildContext context, Site? site) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (route) => PushedPage(
+        child: UnlockScreen(
+          blocker: blocker,
+          site: site,
+          done: () => Navigator.of(route).pop(),
+        ),
+      ),
+    ),
+  );
 
   @override
   void dispose() {
@@ -75,7 +86,7 @@ class _BlockerAppState extends State<BlockerApp> {
                   child: blocker.loaded
                       ? SingleChildScrollView(
                           padding: const EdgeInsets.all(12),
-                          child: _screen(),
+                          child: _screen(context),
                         )
                       : const SizedBox.shrink(),
                 ),
@@ -88,25 +99,17 @@ class _BlockerAppState extends State<BlockerApp> {
     );
   }
 
-  Widget _screen() {
+  Widget _screen(BuildContext context) {
     switch (tab) {
       case Tab.home:
         return HomeScreen(blocker: blocker, goToSites: () => go(Tab.sites));
       case Tab.sites:
         return SitesScreen(
           blocker: blocker,
-          requestUnlock: (site) => setState(() {
-            pendingSite = site;
-            tab = Tab.unlock;
-          }),
+          requestUnlock: (site) => _unlock(context, site),
         );
-      case Tab.unlock:
-        return UnlockScreen(
-          key: ValueKey(pendingSite?.name ?? 'all'),
-          blocker: blocker,
-          site: pendingSite,
-          done: () => go(pendingSite != null ? Tab.sites : Tab.home),
-        );
+      case Tab.schedules:
+        return SchedulesScreen(blocker: blocker);
       case Tab.settings:
         return SettingsScreen(blocker: blocker);
     }

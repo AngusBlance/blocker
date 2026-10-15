@@ -118,6 +118,52 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     return rows;
   }
 
+  bool isRunning(String id) => running.any((r) => r.id == id);
+
+  DateTime? runningUntil(String id) {
+    for (final r in running) {
+      if (r.id == id) return r.until;
+    }
+    return null;
+  }
+
+  /// Adds [schedule], or replaces the one with the same id. Throws
+  /// [ScheduleLockedException] if that would weaken a running schedule and
+  /// [password] isn't the unlock password.
+  Future<void> saveSchedule(Schedule schedule, {String? password}) async {
+    final current = await backend.schedules();
+    final i = current.indexWhere((s) => s.id == schedule.id);
+    await backend.saveSchedules([
+      for (final s in current) s.id == schedule.id ? schedule : s,
+      if (i < 0) schedule,
+    ], password: password);
+    await refresh();
+  }
+
+  /// Deleting a running schedule needs the unlock password, like any other
+  /// way of weakening it.
+  Future<void> deleteSchedule(String id, {String? password}) async {
+    final current = await backend.schedules();
+    await backend.saveSchedules([
+      for (final s in current)
+        if (s.id != id) s,
+    ], password: password);
+    await refresh();
+  }
+
+  Future<void> setEnabled(
+    Schedule schedule,
+    bool enabled, {
+    String? password,
+  }) => saveSchedule(schedule.copyWith(enabled: enabled), password: password);
+
+  /// Ends a running schedule early: just the current occurrence (D1).
+  Future<PauseResult> endEarly(String id, String password) async {
+    final result = await backend.pauseSchedule(id, password);
+    await refresh();
+    return result;
+  }
+
   /// "Block now for…": a one-off schedule from [startsAt] until [endsAt].
   /// Stacks on top of anything already blocked (decision D2). One-off
   /// schedules that have finished are tidied away at the same time (all of
