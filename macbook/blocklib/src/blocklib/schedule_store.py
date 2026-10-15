@@ -108,8 +108,10 @@ def end_early(
     schedule_id: str, password_ok: bool, now: datetime, path: Path = SCHEDULES_FILE
 ) -> str:
     """Pauses the occurrence running now. One of schedule.PAUSED,
-    WRONG_PASSWORD or NOT_RUNNING."""
-    result, text = sch.pause_json(read_text(path), schedule_id, password_ok, now)
+    WRONG_PASSWORD or NOT_RUNNING; DamagedError if the file can't be read."""
+    stored = read_text(path)
+    _split(stored)  # a damaged file is DamagedError, not "not running"
+    result, text = sch.pause_json(stored, schedule_id, password_ok, now)
     if text is not None:
         write_text(text, path)
     return result

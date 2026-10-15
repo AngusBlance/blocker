@@ -97,11 +97,12 @@ def test_a_failed_write_leaves_no_temp_file(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_end_early_on_a_missing_or_corrupt_file_writes_nothing(tmp_path):
+def test_end_early_on_a_missing_or_damaged_file_writes_nothing(tmp_path):
     missing = tmp_path / "missing.json"
     assert store.end_early("work", True, NOW, missing) == sch.NOT_RUNNING
     assert not missing.exists()
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{not json")
-    assert store.end_early("work", True, NOW, corrupt) == sch.NOT_RUNNING
+    with pytest.raises(store.DamagedError):
+        store.end_early("work", True, NOW, corrupt)
     assert corrupt.read_text() == "{not json"
