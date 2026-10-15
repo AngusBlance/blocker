@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import List, NamedTuple, Optional
 
 from blocklib import schedule_store
-from blocklib.domain import known_domains
 from blocklib.schedule import EveryPlan, ForPlan, Schedule, local_now, next_up
 
 # Patched by tests; looked up at call time.
@@ -124,8 +123,8 @@ def schedules_text(
         ]
     lines.append("")
     if not rows and not error:
-        lines.append("  no schedules yet. a schedule blocks every site at set")
-        lines.append("  times, like weekdays 9–5 or every night.")
+        lines.append("  no schedules yet. a schedule blocks sites at set times,")
+        lines.append("  like weekdays 9–5 or every night. (a) adds one.")
     width = max((len(s.name) for s in rows), default=0)
     for s in rows:
         cursor = ">" if s.id == selected_id else " "
@@ -138,7 +137,7 @@ def schedules_text(
         lines.append(f"        {status(s, current)}")
     lines += [
         "",
-        "  (a) add   (enter) on/off   (e) end early   (d) delete",
+        "  (a) add   (enter) edit   (t) on/off   (e) end early   (d) delete",
     ]
     return "\n".join(lines)
 
@@ -161,18 +160,8 @@ def dashboard_lines(schedules: List[Schedule], current: datetime) -> List[str]:
     return lines
 
 
-def new_schedule(preset: Preset) -> Schedule:
-    """A schedule from a preset that blocks every known site."""
-    domains = known_domains()
-    sites = list(dict.fromkeys(d.name for d in domains))
-    return Schedule(
-        id=f"schedule-{secrets.token_hex(6)}",
-        name=preset.label,
-        sites=tuple(sites),
-        domains=tuple(d.url for d in domains),
-        apps=(),
-        plan=preset.plan,
-    )
+def new_id() -> str:
+    return f"schedule-{secrets.token_hex(6)}"
 
 
 def row_ids(schedules: List[Schedule], current: datetime) -> List[str]:
