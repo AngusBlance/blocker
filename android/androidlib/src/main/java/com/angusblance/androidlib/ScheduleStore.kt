@@ -40,6 +40,10 @@ class ScheduleStore(context: Context) {
   fun statusJson(now: ZonedDateTime = ZonedDateTime.now()): String =
     ScheduleRules.status(schedules, now)
 
+  // For the UI: the schedule that starts next.
+  fun nextJson(now: ZonedDateTime = ZonedDateTime.now()): String =
+    ScheduleRules.next(schedules, now)
+
   fun activeBlocks(now: ZonedDateTime = ZonedDateTime.now()): ActiveBlocks =
     ActiveBlocks.compute(blockStore.blockedDomains, blockStore.blockedApps, schedules, now)
 

@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.ZonedDateTime
 
 // A block that applies at certain times: either once ("block now for an
@@ -109,6 +110,26 @@ data class Schedule(
     return when (plan) {
       is Plan.For -> plan.endsAt
       is Plan.Every -> plan.occurrenceEnd(now)!!.toInstant().toEpochMilli()
+    }
+  }
+
+  // When this schedule next starts after `now` (and isn't paused then), for
+  // "next up" on the dashboard. Null if disabled or it never starts again.
+  fun nextStart(now: ZonedDateTime): ZonedDateTime? {
+    if (!enabled) return null
+    val paused = pausedUntil?.let { Instant.ofEpochMilli(it) }
+    fun usable(t: ZonedDateTime) =
+      t.isAfter(now) && (paused == null || !t.toInstant().isBefore(paused))
+    return when (plan) {
+      is Plan.For -> Instant.ofEpochMilli(plan.startsAt).atZone(now.zone).takeIf { usable(it) }
+
+      is Plan.Every -> (0..14).asSequence()
+        .map { now.toLocalDate().plusDays(it.toLong()) }
+        .filter { it.dayOfWeek in plan.days }
+        .map { day ->
+          ZonedDateTime.of(day.atTime(plan.start / 60, plan.start % 60), now.zone)
+        }
+        .firstOrNull { usable(it) }
     }
   }
 

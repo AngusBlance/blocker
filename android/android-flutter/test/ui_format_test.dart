@@ -26,4 +26,11 @@ void main() {
     expect(formatDuration(const Duration(minutes: 75)), '1h 15m');
     expect(formatClock(DateTime(2026, 1, 1, 7, 5)), '07:05');
   });
+
+  test('formatRemaining rounds down to the minute', () {
+    expect(formatRemaining(const Duration(seconds: 30)), 'under a minute');
+    expect(formatRemaining(const Duration(minutes: 12, seconds: 59)), '12m');
+    expect(formatRemaining(const Duration(hours: 1, minutes: 5)), '1h 05m');
+    expect(formatRemaining(const Duration(hours: 26)), '26h 00m');
+  });
 }

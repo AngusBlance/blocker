@@ -24,6 +24,9 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
   List<Schedule> schedules = [];
   List<RunningSchedule> running = [];
 
+  /// The schedule that starts next (its `until` is the start time).
+  RunningSchedule? next;
+
   List<String> domains = [];
   List<String> apps = [];
   bool serviceEnabled = false;
@@ -62,6 +65,7 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     serviceEnabled = await backend.isServiceEnabled();
     schedules = await backend.schedules();
     running = await backend.scheduleStatus();
+    next = await backend.nextSchedule();
     loaded = true;
     _scheduleNextRefresh();
     notifyListeners();
@@ -75,7 +79,7 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
   void _scheduleNextRefresh() {
     _timer?.cancel();
     var wait = const Duration(minutes: 1);
-    for (final r in running) {
+    for (final r in [...running, ?next]) {
       final untilEnd = r.until.difference(now()) + const Duration(seconds: 1);
       if (untilEnd < wait) {
         wait = untilEnd < Duration.zero ? Duration.zero : untilEnd;
@@ -162,6 +166,16 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     final result = await backend.pauseSchedule(id, password);
     await refresh();
     return result;
+  }
+
+  /// The next schedule to start, with its name, for the dashboard.
+  ({String name, DateTime at})? get nextRow {
+    final n = next;
+    if (n == null) return null;
+    for (final s in schedules) {
+      if (s.id == n.id) return (name: s.name, at: n.until);
+    }
+    return null;
   }
 
   /// "Block now for…": a one-off schedule from [startsAt] until [endsAt].

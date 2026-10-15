@@ -303,3 +303,12 @@ class PushedPage extends StatelessWidget {
     ),
   );
 }
+
+/// Time left, rounded down to the minute: "1h 05m", "12m", "under a minute".
+String formatRemaining(Duration left) {
+  if (left < const Duration(minutes: 1)) return 'under a minute';
+  final h = left.inHours;
+  final m = left.inMinutes % 60;
+  if (h == 0) return '${m}m';
+  return '${h}h ${m.toString().padLeft(2, '0')}m';
+}
