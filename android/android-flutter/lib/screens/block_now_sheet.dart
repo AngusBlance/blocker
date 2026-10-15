@@ -12,10 +12,11 @@ class BlockLength {
   final Duration? duration;
   final bool untilMorning;
 
-  /// The next 07:00 after [now].
+  /// The next 07:00 at least half an hour away, so "until 7am" just before
+  /// 7 means tomorrow rather than a few minutes.
   static DateTime nextMorning(DateTime now) {
     final today = DateTime(now.year, now.month, now.day, 7);
-    return now.isBefore(today)
+    return now.add(const Duration(minutes: 30)).isBefore(today)
         ? today
         : DateTime(now.year, now.month, now.day + 1, 7);
   }
@@ -40,12 +41,18 @@ const _maxCustom = Duration(hours: 12);
 
 /// "Block now for…": pick sites (all picked to start with, since that's what
 /// "block now" usually means), pick how long, start. Three taps. Calls
-/// [onStart] with the chosen sites and end time.
+/// [onStart] with the chosen sites, the moment it starts and when it ends
+/// (both from one reading of the clock).
 class BlockNowSheet extends StatefulWidget {
   const BlockNowSheet({super.key, required this.now, required this.onStart});
 
   final DateTime Function() now;
-  final Future<void> Function(List<Site> sites, DateTime endsAt) onStart;
+  final Future<void> Function(
+    List<Site> sites,
+    DateTime startsAt,
+    DateTime endsAt,
+  )
+  onStart;
 
   @override
   State<BlockNowSheet> createState() => _BlockNowSheetState();
@@ -68,11 +75,23 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
         : 'block $what for ${_chosen.label}';
   }
 
+  String? _error;
+
   Future<void> _start() async {
-    setState(() => _starting = true);
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
     final picked = sites.where((s) => _picked.contains(s.name)).toList();
-    await widget.onStart(picked, _chosen.endFrom(widget.now()));
-    if (mounted) Navigator.of(context).maybePop();
+    final startsAt = widget.now();
+    try {
+      await widget.onStart(picked, startsAt, _chosen.endFrom(startsAt));
+      if (mounted) Navigator.of(context).maybePop();
+    } catch (e) {
+      if (mounted) setState(() => _error = "couldn't start the block: $e");
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
   }
 
   @override
@@ -135,6 +154,7 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
                 children: [
                   _StepButton(
                     '−',
+                    semantics: 'shorter',
                     key: const Key('custom-less'),
                     onTap: _customLength > _minCustom
                         ? () => setState(() => _customLength -= _step)
@@ -151,6 +171,7 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
                   ),
                   _StepButton(
                     '+',
+                    semantics: 'longer',
                     key: const Key('custom-more'),
                     onTap: _customLength < _maxCustom
                         ? () => setState(() => _customLength += _step)
@@ -166,8 +187,22 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
               primary: true,
               onPressed: _picked.isEmpty || _starting ? null : _start,
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                key: const Key('block-error'),
+                style: monoStyle(color: AppColors.error),
+              ),
+            ],
             const SizedBox(height: 8),
             const Muted('ending it early needs the unlock password.'),
+            const SizedBox(height: 8),
+            AppButton(
+              'cancel',
+              key: const Key('cancel-block'),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
           ],
         ),
       ),
@@ -176,26 +211,37 @@ class _BlockNowSheetState extends State<BlockNowSheet> {
 }
 
 class _StepButton extends StatelessWidget {
-  const _StepButton(this.label, {super.key, required this.onTap});
+  const _StepButton(
+    this.label, {
+    super.key,
+    required this.semantics,
+    required this.onTap,
+  });
 
   final String label;
+  final String semantics;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 56,
-    height: 48,
-    child: Opacity(
-      opacity: onTap == null ? 0.35 : 1,
-      child: Material(
-        color: AppColors.surface,
-        shape: const RoundedRectangleBorder(
-          side: BorderSide(color: AppColors.border),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          child: Center(
-            child: Text(label, style: monoStyle(size: 20, bold: true)),
+  Widget build(BuildContext context) => Semantics(
+    label: semantics,
+    button: true,
+    excludeSemantics: true,
+    child: SizedBox(
+      width: 56,
+      height: 48,
+      child: Opacity(
+        opacity: onTap == null ? 0.35 : 1,
+        child: Material(
+          color: AppColors.surface,
+          shape: const RoundedRectangleBorder(
+            side: BorderSide(color: AppColors.border),
+          ),
+          child: InkWell(
+            onTap: onTap,
+            child: Center(
+              child: Text(label, style: monoStyle(size: 20, bold: true)),
+            ),
           ),
         ),
       ),

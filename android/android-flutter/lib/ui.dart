@@ -169,8 +169,12 @@ class SquareChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      label: label,
       selected: selected,
+      checked: marker ? selected : null,
+      inMutuallyExclusiveGroup: !marker,
       button: true,
+      excludeSemantics: true,
       child: Material(
         color: selected ? AppColors.surface : AppColors.background,
         shape: RoundedRectangleBorder(
@@ -180,7 +184,9 @@ class SquareChip extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onTap,
-          child: Padding(
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Text(
               marker ? '${selected ? '(x)' : '( )'} $label' : label,
@@ -209,14 +215,20 @@ String formatDuration(Duration d) {
 String formatClock(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
-/// When something ends, relative to [now]: "17:00", "tomorrow 07:00" or
-/// "Mon 07:00".
+/// When something ends, relative to [now]: "17:00", "midnight",
+/// "tomorrow 07:00" or "Mon 07:00". Days are counted on calendar dates, so
+/// a 23- or 25-hour DST day still counts as one.
 String formatUntil(DateTime until, DateTime now) {
-  final today = DateTime(now.year, now.month, now.day);
-  final day = DateTime(until.year, until.month, until.day);
-  final days = day.difference(today).inDays;
+  final days = DateTime.utc(
+    until.year,
+    until.month,
+    until.day,
+  ).difference(DateTime.utc(now.year, now.month, now.day)).inDays;
+  final midnight = until.hour == 0 && until.minute == 0;
   if (days <= 0) return formatClock(until);
-  if (days == 1) return 'tomorrow ${formatClock(until)}';
+  if (days == 1) {
+    return midnight ? 'midnight' : 'tomorrow ${formatClock(until)}';
+  }
   const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   return '${names[until.weekday - 1]} ${formatClock(until)}';
 }

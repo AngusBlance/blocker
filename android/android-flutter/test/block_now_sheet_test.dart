@@ -8,11 +8,17 @@ final now = DateTime(2026, 10, 15, 13, 30);
 
 class Started {
   List<String> sites = [];
+  DateTime? startsAt;
   DateTime? endsAt;
+  Object? failWith;
 }
 
-Future<Started> pumpSheet(WidgetTester tester, {DateTime? at}) async {
-  final started = Started();
+Future<Started> pumpSheet(
+  WidgetTester tester, {
+  DateTime? at,
+  Object? failWith,
+}) async {
+  final started = Started()..failWith = failWith;
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.6;
   addTearDown(tester.view.reset);
@@ -23,8 +29,10 @@ Future<Started> pumpSheet(WidgetTester tester, {DateTime? at}) async {
         body: BlockNowSheet(
           key: UniqueKey(),
           now: () => at ?? now,
-          onStart: (picked, endsAt) async {
+          onStart: (picked, startsAt, endsAt) async {
+            if (started.failWith != null) throw started.failWith!;
             started.sites = [for (final s in picked) s.name];
+            started.startsAt = startsAt;
             started.endsAt = endsAt;
           },
         ),
@@ -61,6 +69,7 @@ void main() {
     expect(startLabel(tester), 'block ${sites.length} sites for 1h');
     await tap(tester, 'start-block');
     expect(started.sites, [for (final s in sites) s.name]);
+    expect(started.startsAt, now);
     expect(started.endsAt, DateTime(2026, 10, 15, 14, 30));
   });
 
@@ -116,5 +125,30 @@ void main() {
     }
     await tap(tester, 'start-block');
     expect(started.endsAt, isNull);
+  });
+
+  testWidgets('until 7am less than half an hour before 7 means tomorrow', (
+    tester,
+  ) async {
+    final started = await pumpSheet(tester, at: DateTime(2026, 10, 15, 6, 45));
+    await tap(tester, 'length-until 7am');
+    await tap(tester, 'start-block');
+    expect(started.endsAt, DateTime(2026, 10, 16, 7));
+  });
+
+  testWidgets('if starting fails the error shows and start works again', (
+    tester,
+  ) async {
+    await pumpSheet(tester, failWith: Exception('locked'));
+    await tap(tester, 'start-block');
+    expect(find.byKey(const Key('block-error')), findsOneWidget);
+    expect(find.textContaining("couldn't start the block"), findsOneWidget);
+    final button = tester.widget<InkWell>(
+      find.descendant(
+        of: find.byKey(const Key('start-block')),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(button.onTap, isNotNull);
   });
 }

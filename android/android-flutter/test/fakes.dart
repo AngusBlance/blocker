@@ -55,12 +55,15 @@ class FakeBackend implements Backend {
 
   List<Schedule> savedSchedules = [];
 
-  /// Ids the fake treats as running now (androidlib works this out for real).
-  Set<String> running = {};
+  /// The fake's clock.
+  DateTime Function() clock = DateTime.now;
 
   @override
   Future<List<Schedule>> schedules() async => savedSchedules;
 
+  /// Mirrors androidlib's ScheduleRules.replaceAll: duplicate ids are bad,
+  /// pauses only come from pausing, and without the password a running
+  /// schedule must survive unweakened.
   @override
   Future<void> saveSchedules(
     List<Schedule> schedules, {
@@ -70,41 +73,82 @@ class FakeBackend implements Backend {
     if (next.length != schedules.length) {
       throw PlatformException(code: 'bad_schedules', message: 'duplicate ids');
     }
-    for (final id in running) {
-      final kept = next[id];
-      if (password != _unlockPasswordForTests &&
-          (kept == null || !kept.enabled)) {
-        throw ScheduleLockedException('$id is running');
+    final stored = {for (final s in savedSchedules) s.id: s};
+    if (password != _unlockPasswordForTests) {
+      for (final running in savedSchedules.where(
+        (s) => fakeActiveUntil(s, clock()) != null,
+      )) {
+        final kept = next[running.id];
+        final ok =
+            kept != null &&
+            kept.enabled &&
+            kept.plan == running.plan &&
+            kept.action == running.action &&
+            running.domains.every(kept.domains.contains) &&
+            running.apps.every(kept.apps.contains);
+        if (!ok) throw ScheduleLockedException('"${running.name}" is running');
       }
     }
-    savedSchedules = [...schedules];
-  }
-
-  /// The fake's clock, for working out which one-off blocks are running.
-  DateTime Function() clock = DateTime.now;
-
-  @override
-  Future<List<RunningSchedule>> scheduleStatus() async {
-    final now = clock();
-    return [
-      for (final s in savedSchedules)
-        if (s.plan case ForPlan(:final startsAt, :final endsAt)
-            when !now.isBefore(startsAt) && now.isBefore(endsAt))
-          RunningSchedule(s.id, endsAt)
-        else if (running.contains(s.id))
-          RunningSchedule(s.id, now.add(const Duration(hours: 1))),
+    savedSchedules = [
+      for (final s in schedules)
+        stored[s.id]?.pausedUntil == null
+            ? s.copyWith(clearPause: true)
+            : s.copyWith(pausedUntil: stored[s.id]!.pausedUntil),
     ];
   }
 
   @override
+  Future<List<RunningSchedule>> scheduleStatus() async => [
+    for (final s in savedSchedules)
+      if (fakeActiveUntil(s, clock()) case final until?)
+        RunningSchedule(s.id, until),
+  ];
+
+  @override
   Future<PauseResult> pauseSchedule(String id, String typed) async {
     if (typed != password) return PauseResult.wrongPassword;
-    if (!running.remove(id)) return PauseResult.notRunning;
+    final i = savedSchedules.indexWhere((s) => s.id == id);
+    final until = i < 0 ? null : fakeActiveUntil(savedSchedules[i], clock());
+    if (until == null) return PauseResult.notRunning;
+    savedSchedules[i] = savedSchedules[i].copyWith(pausedUntil: until);
     return PauseResult.paused;
   }
 }
 
 const _unlockPasswordForTests = password;
+
+/// A test-only copy of androidlib's Schedule.isActive / activeUntil (the real
+/// rules live in Kotlin and are tested there), good enough for local times
+/// without DST changes. Null when not running.
+DateTime? fakeActiveUntil(Schedule s, DateTime now) {
+  if (!s.enabled) return null;
+  if (s.pausedUntil != null && now.isBefore(s.pausedUntil!)) return null;
+  switch (s.plan) {
+    case ForPlan(:final startsAt, :final endsAt):
+      return !now.isBefore(startsAt) && now.isBefore(endsAt) ? endsAt : null;
+    case EveryPlan(:final days, :final start, :final end):
+      final minute = now.hour * 60 + now.minute;
+      final today = DateTime(now.year, now.month, now.day);
+      DateTime at(DateTime day, int m) =>
+          DateTime(day.year, day.month, day.day, m ~/ 60, m % 60);
+      final yesterday = now.weekday == 1 ? 7 : now.weekday - 1;
+      if (start == end) {
+        return days.contains(now.weekday)
+            ? DateTime(now.year, now.month, now.day + 1)
+            : null;
+      }
+      if (start < end) {
+        return days.contains(now.weekday) && minute >= start && minute < end
+            ? at(today, end)
+            : null;
+      }
+      if (days.contains(now.weekday) && minute >= start) {
+        return at(DateTime(now.year, now.month, now.day + 1), end);
+      }
+      if (days.contains(yesterday) && minute < end) return at(today, end);
+      return null;
+  }
+}
 
 Future<FakeBackend> pump(
   WidgetTester tester, {

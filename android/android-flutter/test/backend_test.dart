@@ -103,4 +103,24 @@ void main() {
       PauseResult.notRunning,
     );
   });
+
+  test(
+    'scheduleStatus parses ids and end times, and rejects bad entries',
+    () async {
+      reply = '[{"id":"work","until":1760000000000}]';
+      expect(await ChannelBackend().scheduleStatus(), [
+        RunningSchedule(
+          'work',
+          DateTime.fromMillisecondsSinceEpoch(1760000000000),
+        ),
+      ]);
+      reply = '[{"id":"work"}]';
+      await expectLater(
+        ChannelBackend().scheduleStatus(),
+        throwsFormatException,
+      );
+      reply = null;
+      expect(await ChannelBackend().scheduleStatus(), isEmpty);
+    },
+  );
 }

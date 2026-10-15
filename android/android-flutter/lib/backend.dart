@@ -158,10 +158,13 @@ class ChannelBackend implements Backend {
     final json = await _channel.invokeMethod<String>('scheduleStatus') ?? '[]';
     return [
       for (final item in jsonDecode(json) as List)
-        RunningSchedule(
-          (item as Map)['id'] as String,
-          DateTime.fromMillisecondsSinceEpoch(item['until'] as int),
-        ),
+        switch (item) {
+          {'id': final String id, 'until': final int until} => RunningSchedule(
+            id,
+            DateTime.fromMillisecondsSinceEpoch(until),
+          ),
+          _ => throw FormatException('bad schedule status: $item'),
+        },
     ];
   }
 }

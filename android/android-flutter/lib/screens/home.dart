@@ -16,9 +16,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocked = blocker.blockedSites;
-    final scheduled = blocker.scheduledSites;
-    final until = blocker.scheduledUntil;
-    final anything = blocked.isNotEmpty || scheduled.isNotEmpty;
+    final anything = blocked.isNotEmpty || blocker.running.isNotEmpty;
     return Column(
       children: [
         if (!blocker.serviceEnabled) ...[
@@ -42,11 +40,11 @@ class HomeScreen extends StatelessWidget {
               anything ? 'BLOCKED' : 'not blocked',
               color: anything ? AppColors.accent : AppColors.foreground,
             ),
-            if (until != null)
+            for (final (i, row) in blocker.runningRows.indexed)
               Field(
-                'now',
-                'blocking ${scheduled.length} ${scheduled.length == 1 ? 'site' : 'sites'}'
-                    ' · ends ${formatUntil(until, blocker.now())}',
+                i == 0 ? 'now' : '',
+                '${row.name} · ${row.siteCount} ${row.siteCount == 1 ? 'site' : 'sites'}'
+                ' · until ${formatUntil(row.until, blocker.now())}',
                 color: AppColors.accent,
               ),
             Field(
@@ -56,7 +54,7 @@ class HomeScreen extends StatelessWidget {
                   ? AppColors.success
                   : AppColors.error,
             ),
-            Field('sites', '${sites.length} sites, ${blocked.length} blocked'),
+            Field('manual', '${blocked.length} of ${sites.length} sites'),
           ],
         ),
         const SizedBox(height: 12),
@@ -67,6 +65,7 @@ class HomeScreen extends StatelessWidget {
           onPressed: () => showModalBottomSheet<void>(
             context: context,
             isScrollControlled: true,
+            showDragHandle: true,
             backgroundColor: AppColors.background,
             shape: const RoundedRectangleBorder(
               side: BorderSide(color: AppColors.accent),

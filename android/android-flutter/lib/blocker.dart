@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/widgets.dart';
@@ -62,8 +63,30 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     schedules = await backend.schedules();
     running = await backend.scheduleStatus();
     loaded = true;
+    _scheduleNextRefresh();
     notifyListeners();
   }
+
+  Timer? _timer;
+
+  /// Keeps the dashboard honest while it's open: refresh just after the
+  /// soonest running schedule ends, and at least once a minute so schedules
+  /// that start show up.
+  void _scheduleNextRefresh() {
+    _timer?.cancel();
+    var wait = const Duration(minutes: 1);
+    for (final r in running) {
+      final untilEnd = r.until.difference(now()) + const Duration(seconds: 1);
+      if (untilEnd < wait) {
+        wait = untilEnd < Duration.zero ? Duration.zero : untilEnd;
+      }
+    }
+    _timer = Timer(wait, () {
+      if (_foreground) refresh();
+    });
+  }
+
+  bool _foreground = true;
 
   Future<void> block(List<Site> toBlock) async {
     await backend.block(
@@ -83,26 +106,28 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     return ok;
   }
 
-  /// Sites blocked by schedules running now (on top of manual blocks).
-  List<Site> get scheduledSites {
-    final ids = {for (final r in running) r.id};
-    final names = {
-      for (final s in schedules)
-        if (ids.contains(s.id)) ...s.sites,
-    };
-    return sites.where((s) => names.contains(s.name)).toList();
+  /// Running schedules with their names, soonest-ending first, for the
+  /// dashboard's one-row-each status.
+  List<({String name, int siteCount, DateTime until})> get runningRows {
+    final byId = {for (final s in schedules) s.id: s};
+    final rows = [
+      for (final r in running)
+        if (byId[r.id] case final s?)
+          (name: s.name, siteCount: s.sites.length, until: r.until),
+    ]..sort((a, b) => a.until.compareTo(b.until));
+    return rows;
   }
 
-  /// When every running schedule will have ended, or null if none is running.
-  DateTime? get scheduledUntil => running.isEmpty
-      ? null
-      : running.map((r) => r.until).reduce((a, b) => a.isAfter(b) ? a : b);
-
-  /// "Block now for…": a one-off schedule from now until [endsAt]. Stacks on
-  /// top of anything already blocked (decision D2). One-off schedules that
-  /// have finished are tidied away at the same time.
-  Future<void> blockNow(List<Site> picked, DateTime endsAt) async {
-    final start = now();
+  /// "Block now for…": a one-off schedule from [startsAt] until [endsAt].
+  /// Stacks on top of anything already blocked (decision D2). One-off
+  /// schedules that have finished are tidied away at the same time (all of
+  /// them, not only "Block now" ones; a finished one-off never comes back).
+  Future<void> blockNow(
+    List<Site> picked,
+    DateTime startsAt,
+    DateTime endsAt,
+  ) async {
+    final start = startsAt;
     final current = await backend.schedules();
     final kept = current.where(
       (s) => s.plan is! ForPlan || (s.plan as ForPlan).endsAt.isAfter(start),
@@ -121,11 +146,13 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refresh();
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) refresh();
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
