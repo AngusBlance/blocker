@@ -13,14 +13,9 @@ import 'schedule_editor.dart';
 /// switch; running ones can be ended early with the unlock password. Tap a
 /// recurring one to edit it.
 class SchedulesScreen extends StatelessWidget {
-  const SchedulesScreen({
-    super.key,
-    required this.blocker,
-    this.pickTime = systemTimePicker,
-  });
+  const SchedulesScreen({super.key, required this.blocker});
 
   final Blocker blocker;
-  final TimePicker pickTime;
 
   static void _say(BuildContext context, String message) {
     if (!context.mounted) return;
@@ -119,7 +114,6 @@ class SchedulesScreen extends StatelessWidget {
             child: ScheduleEditor(
               initial: initial,
               newId: () => newScheduleId('schedule'),
-              pickTime: pickTime,
               loadApps: blocker.backend.installedApps,
               onSave: (schedule) async {
                 final saved = await _guarded(

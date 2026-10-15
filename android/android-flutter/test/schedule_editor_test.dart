@@ -4,13 +4,13 @@ import 'package:blocker_flutter/screens/app_picker.dart';
 import 'package:blocker_flutter/screens/schedule_editor.dart';
 import 'package:blocker_flutter/sites.dart';
 import 'package:blocker_flutter/theme.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Harness {
   Schedule? saved;
   bool deleted = false;
-  final picks = <TimeOfDay>[];
 }
 
 Future<Harness> pumpEditor(
@@ -38,8 +38,6 @@ Future<Harness> pumpEditor(
                   InstalledApp('com.amazon.kindle', 'Kindle'),
                 ]
               : null,
-          pickTime: (context, initial) async =>
-              h.picks.isEmpty ? null : h.picks.removeAt(0),
         ),
       ),
     ),
@@ -51,6 +49,24 @@ Future<void> tapKey(WidgetTester tester, String key) async {
   await tester.ensureVisible(find.byKey(Key(key)));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(Key(key)));
+  await tester.pumpAndSettle();
+}
+
+CupertinoDatePicker wheel(WidgetTester tester) =>
+    tester.widget(find.byKey(const Key('time-wheel')));
+
+/// Opens [key]'s wheel (from or to) and turns it to [hour]:[minute].
+Future<void> setTime(
+  WidgetTester tester,
+  String key,
+  int hour,
+  int minute,
+) async {
+  await tapKey(tester, key);
+  if (find.byKey(const Key('time-wheel')).evaluate().isEmpty) {
+    await tapKey(tester, key); // it was already open, and that closed it
+  }
+  wheel(tester).onDateTimeChanged(DateTime(2000, 1, 1, hour, minute));
   await tester.pumpAndSettle();
 }
 
@@ -79,12 +95,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('schedule-name')), 'gym');
     await tapKey(tester, 'days-weekends');
     await tapKey(tester, 'day-3'); // add Wednesday
-    h.picks.addAll([
-      const TimeOfDay(hour: 6, minute: 30),
-      const TimeOfDay(hour: 8, minute: 15),
-    ]);
-    await tapKey(tester, 'time-from');
-    await tapKey(tester, 'time-to');
+    await setTime(tester, 'time-from', 6, 30);
+    await setTime(tester, 'time-to', 8, 15);
     expect(summary(tester), 'W S S · 06:30–08:15');
     await tapKey(tester, 'site-chip-Netflix');
     await tapKey(tester, 'save-schedule');
@@ -93,33 +105,70 @@ void main() {
   });
 
   testWidgets('an overnight range says next day', (tester) async {
-    final h = await pumpEditor(tester);
-    h.picks.addAll([
-      const TimeOfDay(hour: 22, minute: 0),
-      const TimeOfDay(hour: 7, minute: 0),
-    ]);
-    await tapKey(tester, 'time-from');
-    await tapKey(tester, 'time-to');
+    await pumpEditor(tester);
+    await setTime(tester, 'time-from', 22, 0);
+    await setTime(tester, 'time-to', 7, 0);
     expect(summary(tester), 'weekdays · 22:00–07:00 next day');
     await tapKey(tester, 'preset-bedtime');
     expect(summary(tester), 'M T W T S · 22:00–07:00 next day');
   });
 
   testWidgets('all day turns the times off and back on', (tester) async {
-    final h = await pumpEditor(tester);
+    await pumpEditor(tester);
     await tapKey(tester, 'all-day');
     expect(summary(tester), 'weekdays · all day');
-    h.picks.add(const TimeOfDay(hour: 1, minute: 0));
-    await tapKey(tester, 'time-from'); // disabled: no pick happens
-    expect(h.picks, hasLength(1));
+    await tapKey(tester, 'time-from'); // disabled: no wheel
+    expect(find.byKey(const Key('time-wheel')), findsNothing);
     await tapKey(tester, 'all-day');
     expect(summary(tester), 'weekdays · 09:00–17:00');
   });
 
-  testWidgets('cancelling the time picker changes nothing', (tester) async {
+  testWidgets('tapping a time opens a wheel at that time; again closes it', (
+    tester,
+  ) async {
     await pumpEditor(tester);
-    await tapKey(tester, 'time-from'); // stub returns null
-    expect(summary(tester), 'weekdays · 09:00–17:00');
+    expect(find.byKey(const Key('time-wheel')), findsNothing);
+    await tapKey(tester, 'time-from');
+    expect(wheel(tester).initialDateTime, DateTime(2000, 1, 1, 9));
+    expect(wheel(tester).use24hFormat, isTrue);
+    expect(wheel(tester).minuteInterval, 5);
+    await tapKey(tester, 'time-to'); // switches to the to time
+    expect(wheel(tester).initialDateTime, DateTime(2000, 1, 1, 17));
+    await tapKey(tester, 'time-to');
+    expect(find.byKey(const Key('time-wheel')), findsNothing);
+    expect(summary(tester), 'weekdays · 09:00–17:00'); // nothing changed
+  });
+
+  testWidgets('a time off the 5s gets a minute-by-minute wheel', (
+    tester,
+  ) async {
+    await pumpEditor(
+      tester,
+      initial: Schedule(
+        id: 'odd',
+        name: 'Odd',
+        sites: ['YouTube'],
+        domains: sites.first.domains,
+        apps: sites.first.apps,
+        plan: EveryPlan(days: {1}, start: 9 * 60 + 7, end: 17 * 60),
+      ),
+    );
+    await tapKey(tester, 'time-from');
+    expect(wheel(tester).minuteInterval, 1);
+    expect(wheel(tester).initialDateTime, DateTime(2000, 1, 1, 9, 7));
+  });
+
+  testWidgets('sites sit in an even grid, two to a row', (tester) async {
+    await pumpEditor(tester);
+    final first = tester.getRect(find.byKey(Key('site-chip-${sites[0].name}')));
+    final second = tester.getRect(
+      find.byKey(Key('site-chip-${sites[1].name}')),
+    );
+    final third = tester.getRect(find.byKey(Key('site-chip-${sites[2].name}')));
+    expect(first.width, moreOrLessEquals(second.width));
+    expect(first.top, second.top);
+    expect(third.left, first.left);
+    expect(third.width, first.width);
   });
 
   testWidgets('save waits for a name, a day and a site', (tester) async {
@@ -165,8 +214,7 @@ void main() {
     'a from time equal to the to time is refused, not turned into all day',
     (tester) async {
       final h = await pumpEditor(tester);
-      h.picks.add(const TimeOfDay(hour: 17, minute: 0));
-      await tapKey(tester, 'time-from'); // 17:00-17:00
+      await setTime(tester, 'time-from', 17, 0); // 17:00-17:00
       expect(find.byKey(const Key('plan-summary')), findsNothing);
       expect(find.text("from and to can't be the same time."), findsOneWidget);
       await tapKey(tester, 'site-chip-YouTube');
@@ -178,13 +226,9 @@ void main() {
   testWidgets('turning all day off brings back the times from before', (
     tester,
   ) async {
-    final h = await pumpEditor(tester);
-    h.picks.addAll([
-      const TimeOfDay(hour: 22, minute: 0),
-      const TimeOfDay(hour: 7, minute: 0),
-    ]);
-    await tapKey(tester, 'time-from');
-    await tapKey(tester, 'time-to');
+    await pumpEditor(tester);
+    await setTime(tester, 'time-from', 22, 0);
+    await setTime(tester, 'time-to', 7, 0);
     await tapKey(tester, 'all-day');
     expect(summary(tester), 'weekdays · all day');
     await tapKey(tester, 'all-day');
