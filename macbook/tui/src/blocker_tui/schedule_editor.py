@@ -161,7 +161,106 @@ KEYS_MOVING = "hjkl move · enter edit/tick/press · ctrl+s save · esc close"
 KEYS_EDITING = "-- EDITING -- type, then enter or esc to go back to moving"
 
 
-class ScheduleEditor(ModalScreen):
+class GridForm(ModalScreen):
+    """A form that's a grid of cells, moved around vim style: h/j/k/l (or
+    the arrows) go left and right along a row, or up and down to the cell
+    physically above or below. Enter edits a text cell (Field), ticks a box
+    or presses a button; x or space also ticks. Esc stops typing, or closes.
+    Subclasses list their cells' ids in _rows() and show the keys in a
+    Static with id "editor-keys"."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._want_x: Optional[float] = None
+        self._last_vertical: Optional[Widget] = None
+
+    def _rows(self) -> List[List[str]]:
+        raise NotImplementedError
+
+    _MOVES = {
+        "h": (0, -1),
+        "left": (0, -1),
+        "l": (0, 1),
+        "right": (0, 1),
+        "j": (1, 0),
+        "down": (1, 0),
+        "k": (-1, 0),
+        "up": (-1, 0),
+    }
+
+    def _grid(self) -> List[List[Widget]]:
+        grid = []
+        for row in self._rows():
+            widgets = [self.query_one(f"#{i}") for i in row]
+            widgets = [w for w in widgets if not w.disabled]
+            if widgets:
+                grid.append(widgets)
+        return grid
+
+    @staticmethod
+    def _centre(widget: Widget) -> float:
+        """Where a cell sits across the page. A wide cell (the name box)
+        counts from its left, so going down from it lands on the first day."""
+        region = widget.virtual_region
+        return region.x + min(region.width / 2, 3)
+
+    def _move(self, rows: int, cols: int) -> None:
+        grid = self._grid()
+        here = next(
+            (
+                (r, c)
+                for r, row in enumerate(grid)
+                for c, w in enumerate(row)
+                if w is self.focused
+            ),
+            None,
+        )
+        if here is None:
+            target = grid[0][0]
+        elif rows:
+            r, c = here
+            # Up and down go to the cell physically above or below, aiming
+            # for where you were across the page (like vim's column memory).
+            if self._last_vertical is not self.focused or self._want_x is None:
+                self._want_x = self._centre(grid[r][c])
+            r = min(max(r + rows, 0), len(grid) - 1)
+            target = min(grid[r], key=lambda w: abs(self._centre(w) - self._want_x))
+            self._last_vertical = target
+        else:
+            r, c = here
+            target = grid[r][min(max(c + cols, 0), len(grid[r]) - 1)]
+            self._want_x = None
+        target.focus()
+        target.scroll_visible()
+
+    def _editing(self) -> bool:
+        return isinstance(self.focused, Field) and self.focused.editing
+
+    def on_key(self, event: events.Key) -> None:
+        if self._editing():
+            return
+        if event.key in self._MOVES:
+            self._move(*self._MOVES[event.key])
+        elif event.key == "x" and isinstance(self.focused, Checkbox):
+            self.focused.toggle()
+        else:
+            return
+        event.stop()
+        event.prevent_default()
+
+    def on_field_mode_changed(self, event: Field.ModeChanged) -> None:
+        keys = KEYS_EDITING if event.field.editing else KEYS_MOVING
+        self.query_one("#editor-keys", Static).update(keys)
+
+    def action_cancel(self) -> None:
+        # Esc while typing only stops typing.
+        if self._editing():
+            self.focused.editing = False
+            return
+        self.dismiss(None)
+
+
+class ScheduleEditor(GridForm):
     """The form is a grid of cells. h/j/k/l (or the arrows) move between
     them: left and right along a row, up and down to the cell physically
     above or below. Enter edits a text cell, ticks a box or presses a
@@ -188,8 +287,6 @@ class ScheduleEditor(ModalScreen):
         self.on_save = on_save
         self.new_id = new_id()
         self.site_names = list(site_domains())
-        self._want_x: Optional[float] = None
-        self._last_vertical: Optional[Widget] = None
 
     def compose(self) -> ComposeResult:
         s = self.initial
@@ -318,21 +415,8 @@ class ScheduleEditor(ModalScreen):
         self.query_one("#summary", Static).update(summary)
         self.query_one("#editor-error", Static).update(problem)
 
-    # Moving around
-
-    _MOVES = {
-        "h": (0, -1),
-        "left": (0, -1),
-        "l": (0, 1),
-        "right": (0, 1),
-        "j": (1, 0),
-        "down": (1, 0),
-        "k": (-1, 0),
-        "up": (-1, 0),
-    }
-
-    def _grid(self) -> List[List[Widget]]:
-        """The cells, row by row as they appear on screen."""
+    def _rows(self) -> List[List[str]]:
+        """The cells' ids, row by row as they appear on screen."""
         rows: List[List[str]] = []
         if self.initial is None:
             rows.append([f"preset-{i}" for i in range(len(sched_ui.PRESETS))])
@@ -352,70 +436,9 @@ class ScheduleEditor(ModalScreen):
             ],
             ["save", "cancel"],
         ]
-        grid = []
-        for row in rows:
-            widgets = [self.query_one(f"#{i}") for i in row]
-            widgets = [w for w in widgets if not w.disabled]
-            if widgets:
-                grid.append(widgets)
-        return grid
-
-    @staticmethod
-    def _centre(widget: Widget) -> float:
-        """Where a cell sits across the page. A wide cell (the name box)
-        counts from its left, so going down from it lands on the first day."""
-        region = widget.virtual_region
-        return region.x + min(region.width / 2, 3)
-
-    def _move(self, rows: int, cols: int) -> None:
-        grid = self._grid()
-        here = next(
-            (
-                (r, c)
-                for r, row in enumerate(grid)
-                for c, w in enumerate(row)
-                if w is self.focused
-            ),
-            None,
-        )
-        if here is None:
-            target = grid[0][0]
-        elif rows:
-            r, c = here
-            # Up and down go to the cell physically above or below, aiming
-            # for where you were across the page (like vim's column memory).
-            if self._last_vertical is not self.focused or self._want_x is None:
-                self._want_x = self._centre(grid[r][c])
-            r = min(max(r + rows, 0), len(grid) - 1)
-            target = min(grid[r], key=lambda w: abs(self._centre(w) - self._want_x))
-            self._last_vertical = target
-        else:
-            r, c = here
-            target = grid[r][min(max(c + cols, 0), len(grid[r]) - 1)]
-            self._want_x = None
-        target.focus()
-        target.scroll_visible()
-
-    def _editing(self) -> bool:
-        return isinstance(self.focused, Field) and self.focused.editing
-
-    def on_key(self, event: events.Key) -> None:
-        if self._editing():
-            return
-        if event.key in self._MOVES:
-            self._move(*self._MOVES[event.key])
-        elif event.key == "x" and isinstance(self.focused, Checkbox):
-            self.focused.toggle()
-        else:
-            return
-        event.stop()
-        event.prevent_default()
+        return rows
 
     # Events
-
-    def on_field_mode_changed(self, event: Field.ModeChanged) -> None:
-        keys = KEYS_EDITING if event.field.editing else KEYS_MOVING
-        self.query_one("#editor-keys", Static).update(keys)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._update()
@@ -464,10 +487,3 @@ class ScheduleEditor(ModalScreen):
             self.dismiss(schedule)
         else:
             self.on_save(schedule, lambda: self.dismiss(schedule))
-
-    def action_cancel(self) -> None:
-        # Esc while typing only stops typing.
-        if self._editing():
-            self.focused.editing = False
-            return
-        self.dismiss(None)

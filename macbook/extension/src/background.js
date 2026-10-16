@@ -1,26 +1,44 @@
+import { blockRules, focusActive, focusPagePath, focusRules, tabAllowed } from './rules.js';
+
 const WS_URL = 'ws://127.0.0.1:8766';
 const ALARM_NAME = 'blocker-sync-fallback';
-const RULE_ID_BASE = 1000;
+const FOCUS_END_ALARM = 'blocker-focus-end';
 
 let socket = null;
 
-async function applyRules(domains) {
+async function applyState({ blocked, focus }) {
+  const now = Date.now();
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existing.map((r) => r.id);
-
-  const addRules = domains.map((domain, i) => ({
-    id: RULE_ID_BASE + i,
-    priority: 1,
-    action: { type: 'block' },
-    condition: {
-      urlFilter: `||${domain}^`,
-      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'image', 'media'],
-    },
-  }));
-
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules,
+    removeRuleIds: existing.map((r) => r.id),
+    addRules: [...blockRules(blocked), ...focusRules(focus, now)],
+  });
+  const wasOn = existing.some((r) => r.action.type === 'redirect');
+  if (focusActive(focus, now)) {
+    // Ends on time even if the app isn't running then.
+    chrome.alarms.create(FOCUS_END_ALARM, { when: focus.until });
+    if (!wasOn) await sendAwayOpenTabs(focus);
+  } else {
+    chrome.alarms.clear(FOCUS_END_ALARM);
+  }
+}
+
+// The rules only catch pages opened from now on; tabs already open on other
+// sites go to the focus page when focus starts.
+async function sendAwayOpenTabs(focus) {
+  const url = chrome.runtime.getURL(focusPagePath(focus));
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs
+      .filter((tab) => tab.url && !tabAllowed(tab.url, focus.allow))
+      .map((tab) => chrome.tabs.update(tab.id, { url })),
+  );
+}
+
+async function endFocus() {
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: existing.filter((r) => r.action.type !== 'block').map((r) => r.id),
   });
 }
 
@@ -36,7 +54,7 @@ function connect() {
 
   socket.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
-    applyRules(data.blocked);
+    applyState({ blocked: data.blocked, focus: data.focus ?? null });
   });
 
   socket.addEventListener('close', () => {
@@ -60,5 +78,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // reconnects if the socket was ever lost (e.g. the TUI restarted);
     // a no-op if already connected
     connect();
+  } else if (alarm.name === FOCUS_END_ALARM) {
+    endFocus();
   }
 });

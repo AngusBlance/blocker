@@ -67,6 +67,9 @@ jobs:
       - name: Lint and check formatting
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
   android-kotlin:
     name: android / Kotlin
     runs-on: ubuntu-latest

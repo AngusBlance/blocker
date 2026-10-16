@@ -4,6 +4,7 @@ import threading
 
 import websockets
 
+from . import focus
 from .core import HostsBlocker
 
 DEFAULT_WS_PORT = 8766
@@ -27,8 +28,9 @@ async def _ping(port: int, timeout: float) -> None:
 
 
 class SyncServer:
-    def __init__(self, port: int = DEFAULT_WS_PORT):
+    def __init__(self, port: int = DEFAULT_WS_PORT, focus_path=focus.FOCUS_FILE):
         self.port = port
+        self.focus_path = focus_path
         self._loop = None
         self._thread = None
         self._stop_event = None
@@ -84,15 +86,26 @@ class SyncServer:
         finally:
             self._clients.discard(websocket)
 
-    async def _send_state(self, websocket) -> None:
+    def _state(self) -> str:
+        """What the extension needs: everything blocked, and focus mode (the
+        sites it allows and when it ends) if it's on."""
         blocked = sorted(HostsBlocker().all_blocked_urls)
-        await websocket.send(json.dumps({"blocked": blocked}))
+        current = focus.load(self.focus_path)
+        state = {
+            "blocked": blocked,
+            "focus": None
+            if current is None
+            else {"until": current.ends_at, "allow": list(current.domains)},
+        }
+        return json.dumps(state)
+
+    async def _send_state(self, websocket) -> None:
+        await websocket.send(self._state())
 
     async def _broadcast(self) -> None:
         if not self._clients:
             return
-        blocked = sorted(HostsBlocker().all_blocked_urls)
-        message = json.dumps({"blocked": blocked})
+        message = self._state()
         await asyncio.gather(
             *(client.send(message) for client in list(self._clients)),
             return_exceptions=True,

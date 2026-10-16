@@ -66,6 +66,15 @@ def format_plan(plan) -> str:
     return f"{format_days(plan.days)} · {times}"
 
 
+def format_remaining(ms: int) -> str:
+    """Time left, rounded up like Android's: "under a minute", "42m", "1h 05m"."""
+    if ms < 60_000:
+        return "under a minute"
+    minutes = -(-ms // 60_000)
+    hours, minutes = divmod(minutes, 60)
+    return f"{minutes}m" if hours == 0 else f"{hours}h {minutes:02d}m"
+
+
 def format_until(t: datetime, current: datetime) -> str:
     """ "17:00", "midnight", "tomorrow 07:00", "Fri 09:00", "next Mon 09:00"."""
     t = t.astimezone(current.tzinfo) if current.tzinfo else t
