@@ -25,8 +25,11 @@ class BlockerAccessibilityService : AccessibilityService() {
   override fun onServiceConnected() {
     store = ScheduleStore(this)
     manual = BlockStore(this)
-    // Off the main thread, so the first event doesn't wait for the list.
-    Thread { AdultSites.get(this) }.start()
+    // If the adult filter is on, read its list off the main thread now, so
+    // the first page doesn't wait for it. (Otherwise it's read when needed.)
+    val adultOn = AdultSites.ID in manual.blockedDomains ||
+      runCatching { AdultSites.ID in store.activeBlocks().domains }.getOrDefault(false)
+    if (adultOn) Thread { AdultSites.get(this) }.start()
     Log.i(TAG, "connected")
   }
 
@@ -83,9 +86,16 @@ class BlockerAccessibilityService : AccessibilityService() {
     val match = UrlMatcher.blockedBy(address, blocked) { AdultSites.get(this) } ?: return
     // A schedule covers Google Images or the adult filter by listing it, not
     // the host it's on.
-    val key = if (match == UrlMatcher.GOOGLE_IMAGES || match == AdultSites.ID) match else host
+    val listed = if (match == UrlMatcher.GOOGLE_IMAGES || match == AdultSites.ID) match else host
     val label = if (match == UrlMatcher.GOOGLE_IMAGES) "Google Images" else host
-    show(key, label, blocks, blocks.scheduleFor(host = key), packageName, leaveBrowserPage = true)
+    show(
+      host,
+      label,
+      blocks,
+      blocks.scheduleFor(host = listed),
+      packageName,
+      leaveBrowserPage = true,
+    )
   }
 
   // `key` is the host or package name; `label` is what the block screen shows.

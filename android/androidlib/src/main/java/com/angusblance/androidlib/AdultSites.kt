@@ -1,6 +1,7 @@
 package com.angusblance.androidlib
 
 import android.content.Context
+import android.util.Log
 
 // The "Adult sites" filter. Blocked like a site, by putting ID in the
 // blocked domains (manually or in a schedule); it isn't a host itself, so it
@@ -15,13 +16,16 @@ class AdultSites(private val names: Set<String>) {
   fun matches(host: String): Boolean {
     val h = UrlMatcher.normalizeDomain(host)
     if ("porn" in h || h.substringAfterLast('.') in ADULT_TLDS) return true
-    // The host and each parent domain: m.pornhub.com, pornhub.com.
+    if (h in names) return true
+    // Each parent domain too (fr.xhamster.com), except shared platforms whose
+    // other subdomains are ordinary sites (the Mac only blocks the names
+    // listed).
     var rest = h
     while (true) {
-      if (rest in names) return true
       val dot = rest.indexOf('.')
       if (dot < 0) return false
       rest = rest.substring(dot + 1)
+      if (rest in names && rest !in SHARED_PLATFORMS) return true
     }
   }
 
@@ -29,19 +33,27 @@ class AdultSites(private val names: Set<String>) {
     const val ID = "#adult-sites"
     private const val ASSET = "adult-domains.txt"
     private val ADULT_TLDS = setOf("xxx", "porn", "adult", "sex")
+    private val SHARED_PLATFORMS = setOf("fc2.com", "2chan.net")
 
     fun parse(lines: Sequence<String>): AdultSites = AdultSites(
-      lines.map { it.trim().lowercase() }
+      lines.map(String::trim)
         .filter { it.isNotEmpty() && !it.startsWith("#") }
+        // Hosts are matched without www. (UrlMatcher.hostOf).
+        .map(UrlMatcher::normalizeDomain)
         .toHashSet(),
     )
 
     @Volatile private var loaded: AdultSites? = null
 
-    // About 77,000 names: read once, on first use.
+    // About 77,000 names: read once, on first use. Without the list it still
+    // blocks by keyword and top-level domain.
     fun get(context: Context): AdultSites = loaded ?: synchronized(this) {
-      loaded ?: context.assets.open(ASSET).bufferedReader().useLines(::parse)
-        .also { loaded = it }
+      loaded ?: runCatching {
+        context.assets.open(ASSET).bufferedReader().useLines(::parse)
+      }.getOrElse {
+        Log.e(BlockerAccessibilityService.TAG, "adult list unreadable", it)
+        AdultSites(emptySet())
+      }.also { loaded = it }
     }
   }
 }

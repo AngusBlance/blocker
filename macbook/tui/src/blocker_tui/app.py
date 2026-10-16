@@ -133,7 +133,7 @@ def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
     lines.append(f"{cursor} {box} {ADULT_ROW}")
     lines.append("        porn sites, plus SafeSearch on Google")
     lines.append("")
-    lines.append("  (b) block all")
+    lines.append("  (b) block all sites (not the adult filter)")
     return "\n".join(lines)
 
 

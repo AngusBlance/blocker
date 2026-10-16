@@ -9,7 +9,7 @@ import java.io.File
 
 class FiltersTest {
   private val adult = AdultSites.parse(
-    sequenceOf("# header", "", "Pornhub.com", "example-adult.net"),
+    sequenceOf("# header", "", "Pornhub.com", "example-adult.net", "www.only-www.com", "fc2.com"),
   )
 
   private fun blockedBy(address: String, vararg blocked: String) =
@@ -55,6 +55,17 @@ class FiltersTest {
     assertFalse(adult.matches("adult-education.org"))
     assertFalse(adult.matches("xxxlutz.de"))
     assertFalse(adult.matches("net"))
+  }
+
+  @Test fun wwwOnlyEntriesStillMatch() {
+    // Address bars are matched without www., so the list is too.
+    assertTrue(adult.matches(UrlMatcher.hostOf("https://www.only-www.com/")!!))
+    assertTrue(adult.matches("only-www.com"))
+  }
+
+  @Test fun sharedPlatformsBlockOnlyTheNameListed() {
+    assertTrue(adult.matches("fc2.com"))
+    assertFalse(adult.matches("someone.blog.fc2.com"))
   }
 
   @Test fun adultFilterOnlyBlocksWhenSwitchedOn() {
