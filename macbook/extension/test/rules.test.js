@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  ADULT_RULE_ID,
   FOCUS_ALLOW_ID,
   FOCUS_BLOCK_ID,
+  GOOGLE_IMAGES_RULE_ID,
   blockRules,
+  filterRules,
   focusActive,
   focusPagePath,
   focusRules,
@@ -53,4 +56,27 @@ test('open tabs: allowed sites and subdomains stay, others go, non-web pages sta
   assert.equal(tabAllowed('https://notudemy.com/', focus.allow), false);
   assert.equal(tabAllowed('chrome://extensions', focus.allow), true);
   assert.equal(tabAllowed('not a url', focus.allow), true);
+});
+
+test('Google Images and the adult filter add block rules that outrank focus', () => {
+  assert.deepEqual(filterRules(['youtube.com'], false), []);
+  const rules = filterRules(['images.google.com'], true);
+  assert.deepEqual(
+    rules.map((r) => r.id),
+    [GOOGLE_IMAGES_RULE_ID, ADULT_RULE_ID],
+  );
+  const focusAllow = focusRules({ until: 2000, allow: ['google.com'] }, 1000).find(
+    (r) => r.action.type === 'allow',
+  );
+  for (const r of rules) {
+    assert.equal(r.action.type, 'block');
+    assert.ok(r.priority > focusAllow.priority);
+  }
+  const images = new RegExp(rules[0].condition.regexFilter);
+  assert.ok(images.test('https://www.google.com/search?q=dogs&udm=2'));
+  assert.ok(!images.test('https://www.google.com/search?q=dogs'));
+  const adult = new RegExp(rules[1].condition.regexFilter);
+  assert.ok(adult.test('https://www.pornhub.com/'));
+  assert.ok(adult.test('https://site.xxx/'));
+  assert.ok(!adult.test('https://www.essex.ac.uk/'));
 });

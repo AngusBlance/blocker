@@ -26,6 +26,9 @@ _KNOWN_DOMAINS = [
     Domain("facebook.com", "Facebook"),
     Domain("www.facebook.com", "Facebook"),
     Domain("m.facebook.com", "Facebook"),
+    # Image search on www.google.com (udm=2) is a page, not a host: the
+    # Chrome extension blocks it whenever images.google.com is blocked.
+    Domain("images.google.com", "Google Images"),
 ]
 
 

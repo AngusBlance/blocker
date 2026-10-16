@@ -51,6 +51,7 @@ def test_site_groups_groups_domains_by_service_name(tmp_path):
         "Instagram",
         "TikTok",
         "Facebook",
+        "Google Images",
     }
     assert {d.url for d in groups["Netflix"]} == {"netflix.com", "www.netflix.com"}
     assert {d.url for d in groups["Crunchyroll"]} == {
@@ -115,3 +116,12 @@ def test_block_state_survives_closing_and_reopening_the_app(tmp_path):
     assert "(x) Netflix" in text
     domains = sites_with_status(hosts)
     assert all(d.is_blocked for d in domains if d.name == "Netflix")
+
+
+def test_sites_text_shows_the_adult_filter_last(tmp_path):
+    hosts = tmp_path / "hosts"
+    hosts.write_text(BASE)
+    rows = len(site_groups(hosts))
+    assert "> ( ) Adult sites" in sites_text(rows, hosts)
+    hosts.write_text(BASE + "# BLOCKER-ADULT-BEGIN\n# BLOCKER-ADULT-END\n")
+    assert "  (x) Adult sites" in sites_text(0, hosts)

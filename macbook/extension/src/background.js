@@ -1,4 +1,11 @@
-import { blockRules, focusActive, focusPagePath, focusRules, tabAllowed } from './rules.js';
+import {
+  blockRules,
+  filterRules,
+  focusActive,
+  focusPagePath,
+  focusRules,
+  tabAllowed,
+} from './rules.js';
 
 const WS_URL = 'ws://127.0.0.1:8766';
 const ALARM_NAME = 'blocker-sync-fallback';
@@ -6,12 +13,12 @@ const FOCUS_END_ALARM = 'blocker-focus-end';
 
 let socket = null;
 
-async function applyState({ blocked, focus }) {
+async function applyState({ blocked, adult, focus }) {
   const now = Date.now();
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: existing.map((r) => r.id),
-    addRules: [...blockRules(blocked), ...focusRules(focus, now)],
+    addRules: [...blockRules(blocked), ...filterRules(blocked, adult), ...focusRules(focus, now)],
   });
   const wasOn = existing.some((r) => r.action.type === 'redirect');
   if (focusActive(focus, now)) {
@@ -54,7 +61,7 @@ function connect() {
 
   socket.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
-    applyState({ blocked: data.blocked, focus: data.focus ?? null });
+    applyState({ blocked: data.blocked, adult: data.adult === true, focus: data.focus ?? null });
   });
 
   socket.addEventListener('close', () => {

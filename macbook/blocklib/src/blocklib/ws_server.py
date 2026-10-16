@@ -87,12 +87,15 @@ class SyncServer:
             self._clients.discard(websocket)
 
     def _state(self) -> str:
-        """What the extension needs: everything blocked, and focus mode (the
-        sites it allows and when it ends) if it's on."""
-        blocked = sorted(HostsBlocker().all_blocked_urls)
+        """What the extension needs: everything blocked, whether the "Adult
+        sites" filter is on (its list stays in /etc/hosts; the extension adds
+        keyword rules), and focus mode (the sites it allows and when it ends)
+        if it's on."""
+        blocker = HostsBlocker()
         current = focus.load(self.focus_path)
         state = {
-            "blocked": blocked,
+            "blocked": sorted(blocker.all_blocked_urls),
+            "adult": blocker.adult_blocked,
             "focus": None
             if current is None
             else {"until": current.ends_at, "allow": list(current.domains)},

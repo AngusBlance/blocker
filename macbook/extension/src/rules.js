@@ -12,6 +12,19 @@
 export const BLOCK_RULE_BASE = 1000;
 export const FOCUS_BLOCK_ID = 900;
 export const FOCUS_ALLOW_ID = 901;
+export const GOOGLE_IMAGES_RULE_ID = 800;
+export const ADULT_RULE_ID = 801;
+
+// Google image search is a page on www.google.com (udm=2, or tbm=isch in
+// older links) rather than its own host, so blocking images.google.com
+// blocks it with this rule too.
+export const GOOGLE_IMAGE_SEARCH =
+  '^https?://(www\\.)?google\\.[a-z.]+/(imghp|search\\?([^#]*&)?(udm=2|tbm=isch)(&|#|$))';
+
+// The "Adult sites" filter's list lives in /etc/hosts. This adds what a list
+// can't name in advance: "porn" anywhere in the host, and the adult-only
+// top-level domains.
+export const ADULT_HOST = '^https?://[^/?#]*(porn|\\.(xxx|adult|sex)\\.?(:[0-9]+)?([/?#]|$))';
 
 const BLOCK_PRIORITY = 3;
 const FOCUS_ALLOW_PRIORITY = 2;
@@ -27,6 +40,27 @@ export function blockRules(domains) {
       resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'image', 'media'],
     },
   }));
+}
+
+// Google Images and the adult filter: blocks like the sites', so focus mode
+// can't let them through either (an allowed google.com still has no image
+// search).
+export function filterRules(blocked, adult) {
+  const rules = [];
+  if (blocked.includes('images.google.com')) {
+    rules.push(pageRule(GOOGLE_IMAGES_RULE_ID, GOOGLE_IMAGE_SEARCH));
+  }
+  if (adult) rules.push(pageRule(ADULT_RULE_ID, ADULT_HOST));
+  return rules;
+}
+
+function pageRule(id, regexFilter) {
+  return {
+    id,
+    priority: BLOCK_PRIORITY,
+    action: { type: 'block' },
+    condition: { regexFilter, resourceTypes: ['main_frame', 'sub_frame'] },
+  };
 }
 
 export function focusActive(focus, now) {
