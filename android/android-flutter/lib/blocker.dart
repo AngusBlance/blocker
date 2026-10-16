@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/widgets.dart';
 
 import 'backend.dart';
+import 'focus.dart';
 import 'schedule.dart';
 import 'sites.dart';
 
@@ -26,6 +27,9 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
 
   /// The schedule that starts next (its `until` is the start time).
   RunningSchedule? next;
+
+  /// Focus mode, while it's on.
+  FocusSession? focus;
 
   List<String> domains = [];
   List<String> apps = [];
@@ -66,6 +70,7 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     schedules = await backend.schedules();
     running = await backend.scheduleStatus();
     next = await backend.nextSchedule();
+    focus = await backend.focus();
     loaded = true;
     _scheduleNextRefresh();
     notifyListeners();
@@ -79,8 +84,11 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
   void _scheduleNextRefresh() {
     _timer?.cancel();
     var wait = const Duration(minutes: 1);
-    for (final r in [...running, ?next]) {
-      final untilEnd = r.until.difference(now()) + const Duration(seconds: 1);
+    for (final until in [
+      for (final r in [...running, ?next]) r.until,
+      ?focus?.endsAt,
+    ]) {
+      final untilEnd = until.difference(now()) + const Duration(seconds: 1);
       if (untilEnd < wait) {
         wait = untilEnd < Duration.zero ? Duration.zero : untilEnd;
       }
@@ -160,6 +168,34 @@ class Blocker extends ChangeNotifier with WidgetsBindingObserver {
     bool enabled, {
     String? password,
   }) => saveSchedule(schedule.copyWith(enabled: enabled), password: password);
+
+  /// Focus mode for [length]: only [allowedSites] and [allowedApps]
+  /// (package names) can be open until it ends.
+  Future<void> startFocus(
+    List<Site> allowedSites,
+    List<String> allowedApps,
+    Duration length,
+  ) async {
+    await backend.startFocus(
+      FocusSession(
+        endsAt: now().add(length),
+        sites: [for (final s in allowedSites) s.name],
+        domains: [for (final s in allowedSites) ...s.domains],
+        apps: {
+          for (final s in allowedSites) ...s.apps,
+          ...allowedApps,
+        }.toList(),
+      ),
+    );
+    await refresh();
+  }
+
+  /// Ends focus mode early; needs the unlock password (like schedules, D1).
+  Future<FocusEndResult> endFocus(String password) async {
+    final result = await backend.endFocus(password);
+    await refresh();
+    return result;
+  }
 
   /// Ends a running schedule early: just the current occurrence (D1).
   Future<PauseResult> endEarly(String id, String password) async {

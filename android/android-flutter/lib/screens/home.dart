@@ -4,7 +4,10 @@ import '../blocker.dart';
 import '../sites.dart';
 import '../theme.dart';
 import '../ui.dart';
+import '../focus.dart';
 import 'block_now_sheet.dart';
+import 'focus_sheet.dart';
+import 'password_entry.dart';
 import 'setup_steps.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -16,7 +19,9 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocked = blocker.blockedSites;
-    final anything = blocked.isNotEmpty || blocker.running.isNotEmpty;
+    final focus = blocker.focus;
+    final anything =
+        blocked.isNotEmpty || blocker.running.isNotEmpty || focus != null;
     return Column(
       children: [
         if (!blocker.serviceEnabled) ...[
@@ -37,9 +42,22 @@ class HomeScreen extends StatelessWidget {
           children: [
             Field(
               'state',
-              anything ? 'BLOCKED' : 'not blocked',
+              focus != null
+                  ? 'FOCUS'
+                  : anything
+                  ? 'BLOCKED'
+                  : 'not blocked',
               color: anything ? AppColors.accent : AppColors.foreground,
             ),
+            if (focus != null) ...[
+              Field(
+                'focus',
+                'until ${formatUntil(focus.endsAt, blocker.now())}'
+                    ' · ${formatRemaining(focus.endsAt.difference(blocker.now()))} left',
+                color: AppColors.accent,
+              ),
+              Field('allows', _allowed(focus.sites, _extraApps(focus))),
+            ],
             for (final (i, row) in blocker.runningRows.indexed)
               Field(
                 i == 0 ? 'now' : '',
@@ -81,8 +99,73 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        if (focus == null)
+          AppButton(
+            'focus',
+            key: const Key('open-focus'),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              backgroundColor: AppColors.background,
+              shape: const RoundedRectangleBorder(
+                side: BorderSide(color: AppColors.accent),
+              ),
+              builder: (_) => FocusSheet(
+                onStart: blocker.startFocus,
+                loadApps: blocker.backend.installedApps,
+              ),
+            ),
+          )
+        else
+          AppButton(
+            'end focus early',
+            key: const Key('end-focus'),
+            onPressed: () => _endFocus(context),
+          ),
+        const SizedBox(height: 12),
         AppButton('choose sites', onPressed: goToSites),
       ],
+    );
+  }
+
+  /// Allowed apps that aren't just an allowed site's own app.
+  static int _extraApps(FocusSession focus) {
+    final siteApps = {
+      for (final s in sites)
+        if (focus.sites.contains(s.name)) ...s.apps,
+    };
+    return focus.apps.where((a) => !siteApps.contains(a)).length;
+  }
+
+  /// "YouTube, Notion + 2 apps" (app names aren't stored, only packages).
+  static String _allowed(List<String> siteNames, int appCount) {
+    final apps = appCount == 0
+        ? ''
+        : '$appCount ${appCount == 1 ? 'app' : 'apps'}';
+    if (siteNames.isEmpty) return apps;
+    return [siteNames.join(', '), if (apps.isNotEmpty) apps].join(' + ');
+  }
+
+  Future<void> _endFocus(BuildContext context) async {
+    final typed = await askForUnlockPassword(
+      context,
+      password: blocker.backend.unlockPassword,
+      title: 'End focus early',
+      reason: 'everything you blocked out comes back now.',
+      actionLabel: 'end it',
+    );
+    if (typed == null || !context.mounted) return;
+    final result = await blocker.endFocus(typed);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(switch (result) {
+          FocusEndResult.ended => 'focus ended.',
+          FocusEndResult.notRunning => 'focus had already finished.',
+          FocusEndResult.wrongPassword => "that password didn't match.",
+        }, style: monoStyle()),
+      ),
     );
   }
 }
