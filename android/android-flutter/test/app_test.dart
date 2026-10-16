@@ -50,6 +50,22 @@ void main() {
     expect(find.text('(x)'), findsOneWidget);
   });
 
+  testWidgets('the adult filter and Google Images block like sites', (
+    tester,
+  ) async {
+    final b = await pump(tester);
+    await tapTab(tester, 'sites');
+    for (final name in ['Google Images', 'Adult sites']) {
+      final row = find.byKey(Key('site-$name'));
+      await tester.ensureVisible(row);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+    }
+    expect(b.domains, {'images.google.com', '#adult-sites'});
+    expect(b.apps, isEmpty);
+    expect(find.text('image search on google.com'), findsOneWidget);
+  });
+
   testWidgets('unblocking needs the full password typed', (tester) async {
     final b = await pump(tester);
     await tapTab(tester, 'sites');

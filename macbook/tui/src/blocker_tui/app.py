@@ -60,10 +60,12 @@ def load_schedules() -> list:
 
 def dashboard_text(hosts_path: Path = HOSTS_FILE, sync_running: bool = False) -> str:
     state = "BLOCKED" if get_status(hosts_path) else "not blocked"
+    adult = "on" if HostsBlocker(hosts_path).adult_blocked else "off"
     sync_state = f"ws://127.0.0.1:{DEFAULT_WS_PORT}" if sync_running else "NOT RUNNING"
     lines = [
         "STATUS",
         f"  state           {state}",
+        f"  adult filter    {adult}",
         f"  extension sync  {sync_state}",
         *sched_ui.dashboard_lines(load_schedules(), sched_ui.now()),
     ]
@@ -93,9 +95,19 @@ def site_groups(hosts_path: Path = HOSTS_FILE) -> list:
     return list(groups.items())
 
 
+# The row after the sites: the "Adult sites" filter (blocklib/adult.py), a
+# block list too long to show as domains.
+ADULT_ROW = "Adult sites"
+
+
+def site_row_count(hosts_path: Path = HOSTS_FILE) -> int:
+    return len(site_groups(hosts_path)) + 1
+
+
 def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
     groups = site_groups(hosts_path)
-    scheduled = HostsBlocker(hosts_path).scheduled_urls
+    blocker = HostsBlocker(hosts_path)
+    scheduled = blocker.scheduled_urls
     blocked_count = sum(
         1 for _, members in groups if all(d.is_blocked for d in members)
     )
@@ -115,8 +127,13 @@ def sites_text(site_index: int, hosts_path: Path = HOSTS_FILE) -> str:
             else ""
         )
         lines.append(f"{cursor} {box} {name}{by_schedule}")
+    cursor = ">" if site_index == len(groups) else " "
+    box = "(x)" if blocker.adult_blocked else "( )"
     lines.append("")
-    lines.append("  (b) block all")
+    lines.append(f"{cursor} {box} {ADULT_ROW}")
+    lines.append("        porn sites, plus SafeSearch on Google")
+    lines.append("")
+    lines.append("  (b) block all sites (not the adult filter)")
     return "\n".join(lines)
 
 
@@ -442,7 +459,7 @@ class BlockerApp(App):
             return
         if content.section != "sites":
             return
-        last = max(len(site_groups()) - 1, 0)
+        last = site_row_count() - 1
         content.site_index = min(max(content.site_index + delta, 0), last)
 
     def action_block_sites(self) -> None:
@@ -663,23 +680,36 @@ class BlockerApp(App):
         if content.section != "sites":
             return
         groups = site_groups()
-        if not groups:
+        blocker = HostsBlocker()
+        if content.site_index >= len(groups):
+            self._toggle(
+                ADULT_ROW,
+                blocker.adult_blocked,
+                blocker.block_adult,
+                blocker.unblock_adult,
+            )
             return
         name, members = groups[content.site_index]
         urls = [d.url for d in members]
-        blocker = HostsBlocker()
-        all_blocked = all(blocker.is_blocked(u) for u in urls)
+        self._toggle(
+            name,
+            all(blocker.is_blocked(u) for u in urls),
+            lambda: blocker.block_all(urls),
+            lambda: blocker.unblock_all(urls),
+        )
 
-        if not all_blocked:
-            if self._run_privileged(lambda: blocker.block_all(urls), f"Blocked {name}"):
+    def _toggle(self, name: str, blocked: bool, block, unblock) -> None:
+        """Blocks `name`, or unblocks it once the password is typed."""
+        content = self.query_one(Content)
+
+        if not blocked:
+            if self._run_privileged(block, f"Blocked {name}"):
                 self._notify_sync()
             content.refresh(layout=True)
             return
 
         if not is_password_set():
-            if self._run_privileged(
-                lambda: blocker.unblock_all(urls), f"Unlocked {name}"
-            ):
+            if self._run_privileged(unblock, f"Unlocked {name}"):
                 self._notify_sync()
             content.refresh(layout=True)
             return
@@ -690,9 +720,7 @@ class BlockerApp(App):
             if correct is False:
                 self.notify("Incorrect password", severity="error")
                 return
-            if self._run_privileged(
-                lambda: blocker.unblock_all(urls), f"Unlocked {name}"
-            ):
+            if self._run_privileged(unblock, f"Unlocked {name}"):
                 self._notify_sync()
             content.refresh(layout=True)
 

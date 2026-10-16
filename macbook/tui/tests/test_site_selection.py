@@ -40,11 +40,11 @@ async def test_site_cursor_does_not_go_below_zero():
         assert content.site_index == 0
 
 
-async def test_site_cursor_does_not_exceed_last_group():
+async def test_site_cursor_does_not_exceed_last_row():
     app = BlockerApp()
     async with app.run_test() as pilot:
         await pilot.press("j", "l")
-        last = len(site_groups()) - 1
+        last = len(site_groups())  # the "Adult sites" row comes after them
         for _ in range(last + 5):
             await pilot.press("j")
         content = app.query_one(Content)
