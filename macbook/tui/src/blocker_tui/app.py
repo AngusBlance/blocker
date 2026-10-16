@@ -4,6 +4,7 @@ import sys
 import threading
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 from textual.app import App, ComposeResult, SuspendNotSupported
@@ -14,8 +15,10 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
 
 from blocker_tui import schedules as sched_ui
+from blocker_tui.focus_editor import FocusEditor
 from blocker_tui.installer import scheduler_installed
 from blocker_tui.schedule_editor import ScheduleEditor
+from blocklib import focus as focus_mode
 from blocklib import schedule_store
 from blocklib.core import HOSTS_FILE, HostsBlocker
 from blocklib.domain import known_domains
@@ -29,12 +32,21 @@ from blocklib.schedule import (
 )
 from blocklib.ws_server import DEFAULT_WS_PORT, SyncServer, notify_external_daemon
 
-SECTIONS = ["dashboard", "sites", "schedule", "unlock", "activity", "settings"]
+SECTIONS = [
+    "dashboard",
+    "sites",
+    "schedule",
+    "focus",
+    "unlock",
+    "activity",
+    "settings",
+]
 
 SECTION_CONTENT = {
     "dashboard": "dashboard view (placeholder)",
     "sites": "sites view (placeholder)",
     "schedule": "schedule view (placeholder)",
+    "focus": "focus view (placeholder)",
     "unlock": "unlock view (placeholder)",
     "activity": "activity view (placeholder)",
     "settings": "settings view (placeholder)",
@@ -58,8 +70,56 @@ def load_schedules() -> list:
     return read_schedules()[0]
 
 
+# Patched by tests; looked up at call time.
+FOCUS_PATH: Path = focus_mode.FOCUS_FILE
+
+
+def focus_now() -> int:
+    return focus_mode.now_ms()
+
+
+def load_focus():
+    return focus_mode.load(FOCUS_PATH, focus_now())
+
+
+def _clock(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000).strftime("%H:%M")
+
+
+def focus_text() -> str:
+    current = load_focus()
+    if current is None:
+        return "\n".join(
+            [
+                "FOCUS",
+                "  off. while it's on, only the sites you allow can be open in",
+                "  Chrome; everything else goes to the focus page until it ends.",
+                "  (needs the Chrome extension: see `block install`.)",
+                "",
+                "  (s) start focus",
+            ]
+        )
+    left = max(0, current.ends_at - focus_now())
+    return "\n".join(
+        [
+            "FOCUS",
+            f"  on until {_clock(current.ends_at)} · {sched_ui.format_remaining(left)} left",
+            f"  allows   {', '.join(current.sites)}",
+            "",
+            "  (e) end early (needs the unlock password)",
+        ]
+    )
+
+
 def dashboard_text(hosts_path: Path = HOSTS_FILE, sync_running: bool = False) -> str:
-    state = "BLOCKED" if get_status(hosts_path) else "not blocked"
+    current = load_focus()
+    state = (
+        "FOCUS"
+        if current is not None
+        else "BLOCKED"
+        if get_status(hosts_path)
+        else "not blocked"
+    )
     adult = "on" if HostsBlocker(hosts_path).adult_blocked else "off"
     sync_state = f"ws://127.0.0.1:{DEFAULT_WS_PORT}" if sync_running else "NOT RUNNING"
     lines = [
@@ -69,6 +129,11 @@ def dashboard_text(hosts_path: Path = HOSTS_FILE, sync_running: bool = False) ->
         f"  extension sync  {sync_state}",
         *sched_ui.dashboard_lines(load_schedules(), sched_ui.now()),
     ]
+    if current is not None:
+        lines.append(
+            f"  focus           until {_clock(current.ends_at)} · "
+            f"allows {', '.join(current.sites)}"
+        )
     return "\n".join(lines)
 
 
@@ -170,6 +235,8 @@ class Content(Static):
             return sites_text(self.site_index)
         if self.section == "schedule":
             return schedules_text(self.schedule_id)
+        if self.section == "focus":
+            return focus_text()
         return SECTION_CONTENT[self.section]
 
 
@@ -250,7 +317,7 @@ class BlockerApp(App):
         background: $surface;
         padding: 1 2;
     }
-    ConfirmModal, ScheduleEditor {
+    ConfirmModal, ScheduleEditor, FocusEditor {
         align: center middle;
     }
     #editor-dialog {
@@ -321,7 +388,8 @@ class BlockerApp(App):
         Binding("b", "block_sites", "Block"),
         Binding("a", "add_schedule", "Add schedule", show=False),
         Binding("t", "toggle_schedule", "On/off", show=False),
-        Binding("e", "end_schedule_early", "End early", show=False),
+        Binding("e", "end_early", "End early", show=False),
+        Binding("s", "start_focus", "Start focus", show=False),
         Binding("d", "delete_schedule", "Delete schedule", show=False),
         Binding("q", "quit", "Quit"),
     ]
@@ -627,6 +695,59 @@ class BlockerApp(App):
             )
 
         self.push_screen(ScheduleEditor(on_save=save))
+
+    # Focus
+
+    def _in_focus(self) -> bool:
+        return (
+            self.focus_pane == "content" and self.query_one(Content).section == "focus"
+        )
+
+    def action_start_focus(self) -> None:
+        if not self._in_focus():
+            return
+        if load_focus() is not None:
+            self.notify("focus is already on.")
+            return
+
+        def start(new, close) -> None:
+            try:
+                focus_mode.save_start(new, FOCUS_PATH, focus_now())
+            except (OSError, focus_mode.FocusError) as e:
+                self.notify(f"couldn't start focus: {e}", severity="error", timeout=6)
+                return
+            close()
+            self._notify_sync()
+            self.notify(f"focus on until {_clock(new.ends_at)}.")
+            self.query_one(Content).refresh(layout=True)
+
+        blocked = HostsBlocker().all_blocked_urls
+        self.push_screen(FocusEditor(start, blocked=blocked, now_ms=focus_now))
+
+    def _end_focus(self) -> None:
+        if load_focus() is None:
+            self.notify("focus isn't on.")
+            return
+
+        def end() -> None:
+            result = focus_mode.save_end(True, FOCUS_PATH, focus_now())
+            self._notify_sync()
+            self.notify(
+                "focus ended."
+                if result == focus_mode.ENDED
+                else "focus had already ended."
+            )
+            self.query_one(Content).refresh(layout=True)
+
+        self._ask_password(
+            "END FOCUS EARLY", "everything you blocked out comes back now.", end
+        )
+
+    def action_end_early(self) -> None:
+        if self._in_focus():
+            self._end_focus()
+        else:
+            self.action_end_schedule_early()
 
     def action_end_schedule_early(self) -> None:
         if not self._in_schedules():

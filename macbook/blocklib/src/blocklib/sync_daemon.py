@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 from .core import HOSTS_FILE
+from .focus import FOCUS_FILE
 from .ws_server import DEFAULT_WS_PORT, SyncServer
 
 # Schedules start and end without anyone touching the TUI (the root helper
@@ -23,12 +24,15 @@ def run(
     stop: threading.Event,
     hosts: Path = HOSTS_FILE,
     poll: float = POLL_SECONDS,
+    focus_file: Path = FOCUS_FILE,
 ) -> None:
     server.start()
     try:
-        seen = _mtime(hosts)
+        # The hosts file (schedules starting and ending) and the focus file
+        # (focus started or ended from the TUI).
+        seen = (_mtime(hosts), _mtime(focus_file))
         while not stop.wait(poll):
-            now = _mtime(hosts)
+            now = (_mtime(hosts), _mtime(focus_file))
             if now != seen:
                 seen = now
                 server.notify_change()

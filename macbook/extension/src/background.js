@@ -1,55 +1,52 @@
+import {
+  blockRules,
+  filterRules,
+  focusActive,
+  focusPagePath,
+  focusRules,
+  tabAllowed,
+} from './rules.js';
+
 const WS_URL = 'ws://127.0.0.1:8766';
 const ALARM_NAME = 'blocker-sync-fallback';
-const RULE_ID_BASE = 1000;
-const GOOGLE_IMAGES_RULE_ID = 800;
-const ADULT_RULE_ID = 801;
-
-// Google image search is a page on www.google.com (udm=2, or tbm=isch in
-// older links) rather than its own host, so blocking images.google.com
-// blocks it with this rule too.
-const GOOGLE_IMAGE_SEARCH =
-  '^https?://(www\\.)?google\\.[a-z.]+/(imghp|search\\?([^#]*&)?(udm=2|tbm=isch)(&|#|$))';
-
-// The "Adult sites" filter's list lives in /etc/hosts. This adds what a list
-// can't name in advance: "porn" anywhere in the host, and the adult-only
-// top-level domains.
-const ADULT_HOST = '^https?://[^/?#]*(porn|\\.(xxx|adult|sex)\\.?(:[0-9]+)?([/?#]|$))';
+const FOCUS_END_ALARM = 'blocker-focus-end';
 
 let socket = null;
 
-async function applyRules(domains, adult) {
+async function applyState({ blocked, adult, focus }) {
+  const now = Date.now();
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existing.map((r) => r.id);
-
-  const addRules = domains.map((domain, i) => ({
-    id: RULE_ID_BASE + i,
-    priority: 1,
-    action: { type: 'block' },
-    condition: {
-      urlFilter: `||${domain}^`,
-      resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'script', 'image', 'media'],
-    },
-  }));
-  if (domains.includes('images.google.com')) {
-    addRules.push(pageRule(GOOGLE_IMAGES_RULE_ID, GOOGLE_IMAGE_SEARCH));
-  }
-  if (adult) {
-    addRules.push(pageRule(ADULT_RULE_ID, ADULT_HOST));
-  }
-
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules,
+    removeRuleIds: existing.map((r) => r.id),
+    addRules: [...blockRules(blocked), ...filterRules(blocked, adult), ...focusRules(focus, now)],
   });
+  const wasOn = existing.some((r) => r.action.type === 'redirect');
+  if (focusActive(focus, now)) {
+    // Ends on time even if the app isn't running then.
+    chrome.alarms.create(FOCUS_END_ALARM, { when: focus.until });
+    if (!wasOn) await sendAwayOpenTabs(focus);
+  } else {
+    chrome.alarms.clear(FOCUS_END_ALARM);
+  }
 }
 
-function pageRule(id, regexFilter) {
-  return {
-    id,
-    priority: 1,
-    action: { type: 'block' },
-    condition: { regexFilter, resourceTypes: ['main_frame', 'sub_frame'] },
-  };
+// The rules only catch pages opened from now on; tabs already open on other
+// sites go to the focus page when focus starts.
+async function sendAwayOpenTabs(focus) {
+  const url = chrome.runtime.getURL(focusPagePath(focus));
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs
+      .filter((tab) => tab.url && !tabAllowed(tab.url, focus.allow))
+      .map((tab) => chrome.tabs.update(tab.id, { url })),
+  );
+}
+
+async function endFocus() {
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: existing.filter((r) => r.action.type !== 'block').map((r) => r.id),
+  });
 }
 
 function connect() {
@@ -64,7 +61,7 @@ function connect() {
 
   socket.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
-    applyRules(data.blocked, data.adult === true);
+    applyState({ blocked: data.blocked, adult: data.adult === true, focus: data.focus ?? null });
   });
 
   socket.addEventListener('close', () => {
@@ -88,5 +85,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // reconnects if the socket was ever lost (e.g. the TUI restarted);
     // a no-op if already connected
     connect();
+  } else if (alarm.name === FOCUS_END_ALARM) {
+    endFocus();
   }
 });
