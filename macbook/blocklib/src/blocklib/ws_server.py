@@ -84,15 +84,25 @@ class SyncServer:
         finally:
             self._clients.discard(websocket)
 
+    @staticmethod
+    def _state() -> str:
+        """Everything blocked, and whether the "Adult sites" filter is on
+        (its list stays in /etc/hosts; the extension adds keyword rules)."""
+        blocker = HostsBlocker()
+        return json.dumps(
+            {
+                "blocked": sorted(blocker.all_blocked_urls),
+                "adult": blocker.adult_blocked,
+            }
+        )
+
     async def _send_state(self, websocket) -> None:
-        blocked = sorted(HostsBlocker().all_blocked_urls)
-        await websocket.send(json.dumps({"blocked": blocked}))
+        await websocket.send(self._state())
 
     async def _broadcast(self) -> None:
         if not self._clients:
             return
-        blocked = sorted(HostsBlocker().all_blocked_urls)
-        message = json.dumps({"blocked": blocked})
+        message = self._state()
         await asyncio.gather(
             *(client.send(message) for client in list(self._clients)),
             return_exceptions=True,

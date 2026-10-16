@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import adult
 from .schedule_helper import LOCK_FILE, scheduled_hostnames
 
 HOSTS_FILE = Path("/etc/hosts")
@@ -36,6 +37,18 @@ class HostsBlocker:
     @property
     def is_active(self) -> bool:
         return bool(self.blocked_urls)
+
+    @property
+    def adult_blocked(self) -> bool:
+        """The "Adult sites" filter is on (see adult.py)."""
+        return adult.is_on(self.raw_content)
+
+    def block_adult(self, names=None) -> None:
+        names = adult.load_names() if names is None else names
+        self._commit(adult.turned_on(self.raw_content, names))
+
+    def unblock_adult(self) -> None:
+        self._commit(adult.turned_off(self.raw_content))
 
     def is_blocked(self, url: str) -> bool:
         return url in self.blocked_urls
