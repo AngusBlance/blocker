@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import 'focus.dart';
 import 'schedule.dart';
 
 /// What the UI needs from androidlib. The real one talks to MainActivity's
@@ -41,6 +42,16 @@ abstract class Backend {
 
   /// Apps a schedule can send you to instead (launchable, not Blocker).
   Future<List<InstalledApp>> installedApps();
+
+  /// The focus session running now, if any.
+  Future<FocusSession?> focus();
+
+  /// Starts focus mode. Throws a [PlatformException] if one is already
+  /// running, it allows nothing, or it's longer than 12 hours.
+  Future<void> startFocus(FocusSession focus);
+
+  /// Ends focus early; needs the unlock password.
+  Future<FocusEndResult> endFocus(String password);
 }
 
 class InstalledApp {
@@ -207,6 +218,35 @@ class ChannelBackend implements Backend {
         DateTime.fromMillisecondsSinceEpoch(at),
       ),
       final other => throw FormatException('bad next schedule: $other'),
+    };
+  }
+
+  @override
+  Future<FocusSession?> focus() async {
+    final json = await _channel.invokeMethod<String>('getFocus');
+    if (json == null) return null;
+    return switch (jsonDecode(json)) {
+      null => null,
+      final Map<String, Object?> map => FocusSession.fromJson(map),
+      final other => throw FormatException('bad focus: $other'),
+    };
+  }
+
+  @override
+  Future<void> startFocus(FocusSession focus) => _channel.invokeMethod<void>(
+    'startFocus',
+    {'focus': jsonEncode(focus.toJson())},
+  );
+
+  @override
+  Future<FocusEndResult> endFocus(String password) async {
+    final result = await _channel.invokeMethod<String>('endFocus', {
+      'password': password,
+    });
+    return switch (result) {
+      'ended' => FocusEndResult.ended,
+      'wrong_password' => FocusEndResult.wrongPassword,
+      _ => FocusEndResult.notRunning,
     };
   }
 }

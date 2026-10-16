@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.provider.Settings
 import com.angusblance.androidlib.BlockStore
 import com.angusblance.androidlib.BlockerAccessibilityService
+import com.angusblance.androidlib.FocusRules
+import com.angusblance.androidlib.FocusStore
 import com.angusblance.androidlib.Schedule
 import com.angusblance.androidlib.ScheduleRules
 import com.angusblance.androidlib.ScheduleStore
@@ -31,6 +33,7 @@ class MainActivity : FlutterActivity() {
       .map { (pkg, label) -> mapOf("package" to pkg, "label" to label) }
   }
   private val schedules by lazy { ScheduleStore(this) }
+  private val focus by lazy { FocusStore(this) }
 
   private val serviceComponent
     get() = ComponentName(this, BlockerAccessibilityService::class.java)
@@ -114,6 +117,23 @@ class MainActivity : FlutterActivity() {
             }
           }.start()
         }
+
+        "getFocus" -> result.success(focus.active()?.toJson()?.toString() ?: "null")
+
+        "startFocus" -> try {
+          focus.start(call.argument<String>("focus") ?: "")
+          result.success(null)
+        } catch (e: IllegalArgumentException) {
+          result.error("invalid", e.message, null)
+        }
+
+        "endFocus" -> result.success(
+          when (focus.end(call.argument<String>("password") ?: "")) {
+            FocusRules.EndResult.ENDED -> "ended"
+            FocusRules.EndResult.WRONG_PASSWORD -> "wrong_password"
+            FocusRules.EndResult.NOT_RUNNING -> "not_running"
+          },
+        )
 
         "isServiceEnabled" -> result.success(isServiceEnabled())
 

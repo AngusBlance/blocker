@@ -1,4 +1,5 @@
 import 'package:blocker_flutter/backend.dart';
+import 'package:blocker_flutter/focus.dart';
 import 'package:blocker_flutter/main.dart';
 import 'package:blocker_flutter/schedule.dart';
 import 'package:flutter/material.dart';
@@ -54,6 +55,38 @@ class FakeBackend implements Backend {
   Future<void> openAppInfo() async => appInfoOpened++;
 
   List<Schedule> savedSchedules = [];
+
+  /// Mirrors androidlib's FocusRules: one at a time, at most 12 hours, must
+  /// allow something; a finished one counts as none.
+  FocusSession? storedFocus;
+
+  @override
+  Future<FocusSession?> focus() async {
+    final f = storedFocus;
+    return f != null && clock().isBefore(f.endsAt) ? f : null;
+  }
+
+  @override
+  Future<void> startFocus(FocusSession f) async {
+    final now = clock();
+    if (await focus() != null) {
+      throw PlatformException(code: 'invalid', message: 'focus is already on');
+    }
+    if (!f.endsAt.isAfter(now) ||
+        f.endsAt.difference(now) > const Duration(hours: 12) ||
+        (f.domains.isEmpty && f.apps.isEmpty)) {
+      throw PlatformException(code: 'invalid', message: 'bad focus');
+    }
+    storedFocus = f;
+  }
+
+  @override
+  Future<FocusEndResult> endFocus(String typed) async {
+    if (await focus() == null) return FocusEndResult.notRunning;
+    if (typed != password) return FocusEndResult.wrongPassword;
+    storedFocus = null;
+    return FocusEndResult.ended;
+  }
 
   /// The fake's clock.
   DateTime Function() clock = DateTime.now;

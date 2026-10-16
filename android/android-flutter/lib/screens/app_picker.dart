@@ -8,9 +8,10 @@ import '../ui.dart';
 /// put above a lazily built list of the phone's apps. Pops with the chosen
 /// [InstalledApp].
 class AppPicker extends StatefulWidget {
-  const AppPicker({super.key, required this.apps});
+  const AppPicker({super.key, required this.apps, this.title = 'SEND ME TO'});
 
   final Future<List<InstalledApp>> Function() apps;
+  final String title;
 
   @override
   State<AppPicker> createState() => _AppPickerState();
@@ -53,7 +54,7 @@ class _AppPickerState extends State<AppPicker> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('SEND ME TO', style: monoStyle(bold: true)),
+          Text(widget.title, style: monoStyle(bold: true)),
           const SizedBox(height: 10),
           TextField(
             key: const Key('app-search'),
