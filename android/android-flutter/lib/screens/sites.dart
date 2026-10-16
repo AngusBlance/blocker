@@ -81,7 +81,7 @@ class _SiteRow extends StatelessWidget {
               children: [
                 Text(site.name, style: monoStyle()),
                 Text(
-                  '${site.domains.join(', ')} + app',
+                  site.detail,
                   style: monoStyle(color: AppColors.muted, size: 12),
                 ),
               ],

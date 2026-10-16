@@ -26,4 +26,31 @@ object UrlMatcher {
   // notyoutube.com.
   fun matchingDomain(host: String, blocked: Collection<String>): String? =
     blocked.firstOrNull { host == it || host.endsWith(".$it") }
+
+  // Google image search is a page on google.com (udm=2, or tbm=isch in older
+  // links) rather than its own host, so blocking images.google.com blocks
+  // it too.
+  const val GOOGLE_IMAGES = "images.google.com"
+  private val googleImageSearch = Regex(
+    """^(https?://)?(www\.)?google\.[a-z.]+/(imghp|search\?([^#]*&)?(udm=2|tbm=isch)(&|#|$))""",
+    RegexOption.IGNORE_CASE,
+  )
+
+  fun isGoogleImageSearch(addressBarText: String): Boolean =
+    googleImageSearch.containsMatchIn(addressBarText.trim())
+
+  // What in `blocked` blocks this address: the blocked domain covering its
+  // host, GOOGLE_IMAGES for an image search, or AdultSites.ID for an adult
+  // site. Null if nothing does.
+  fun blockedBy(
+    addressBarText: String,
+    blocked: Collection<String>,
+    adult: () -> AdultSites,
+  ): String? {
+    val host = hostOf(addressBarText) ?: return null
+    matchingDomain(host, blocked)?.let { return it }
+    if (GOOGLE_IMAGES in blocked && isGoogleImageSearch(addressBarText)) return GOOGLE_IMAGES
+    if (AdultSites.ID in blocked && adult().matches(host)) return AdultSites.ID
+    return null
+  }
 }

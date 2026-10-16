@@ -34,6 +34,11 @@ class BlockerAccessibilityService : AccessibilityService() {
     store = ScheduleStore(this)
     manual = BlockStore(this)
     focusStore = FocusStore(this)
+    // If the adult filter is on, read its list off the main thread now, so
+    // the first page doesn't wait for it. (Otherwise it's read when needed.)
+    val adultOn = AdultSites.ID in manual.blockedDomains ||
+      runCatching { AdultSites.ID in store.activeBlocks().domains }.getOrDefault(false)
+    if (adultOn) Thread { AdultSites.get(this) }.start()
     Log.i(TAG, "connected")
   }
 
@@ -83,14 +88,30 @@ class BlockerAccessibilityService : AccessibilityService() {
     if (BrowserUrlBars.idsFor(packageName) == null) return
     val blocked = blocks.domains
     if (blocked.isEmpty()) return
-    val host = currentHost(packageName) ?: return
-    UrlMatcher.matchingDomain(host, blocked) ?: return
-    show(host, host, blocks, blocks.scheduleFor(host = host), packageName, leaveBrowserPage = true)
+    val address = currentAddress(packageName) ?: return
+    val host = UrlMatcher.hostOf(address) ?: return
+    val match = UrlMatcher.blockedBy(address, blocked) { AdultSites.get(this) } ?: return
+    // A schedule covers Google Images or the adult filter by listing it, not
+    // the host it's on.
+    val listed = if (match == UrlMatcher.GOOGLE_IMAGES || match == AdultSites.ID) match else host
+    val label = if (match == UrlMatcher.GOOGLE_IMAGES) "Google Images" else host
+    show(
+      host,
+      label,
+      blocks,
+      blocks.scheduleFor(host = listed),
+      packageName,
+      leaveBrowserPage = true,
+    )
   }
 
   // The site a known browser in front is showing, or null if there isn't
   // one (or the user is typing in the address bar).
-  private fun currentHost(packageName: String): String? {
+  private fun currentHost(packageName: String): String? =
+    currentAddress(packageName)?.let(UrlMatcher::hostOf)
+
+  // What the browser's address bar shows, unless it's being typed in.
+  private fun currentAddress(packageName: String): String? {
     val barIds = BrowserUrlBars.idsFor(packageName) ?: return null
     val root = rootInActiveWindow ?: return null
     val bar = barIds.firstNotNullOfOrNull { id ->
@@ -98,7 +119,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     } ?: return null
     // While the user is typing, the bar holds a half-finished address.
     if (bar.isFocused) return null
-    return UrlMatcher.hostOf(bar.text?.toString() ?: return null)
+    return bar.text?.toString()
   }
 
   // True if focus blocked what's in front.

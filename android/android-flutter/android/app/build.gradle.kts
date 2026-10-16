@@ -11,6 +11,8 @@ android {
     // android/androidlib; MainActivity's method channel exposes it to Dart.
     sourceSets["main"].java.srcDir("../../../androidlib/src/main/java")
     sourceSets["main"].res.srcDir("../../../androidlib/src/main/res")
+    // The adult-sites list (a link to blocklib's, so both platforms ship one).
+    sourceSets["main"].assets.srcDir("../../../androidlib/src/main/assets")
     // androidlib's JVM unit tests (./gradlew :app:testDebugUnitTest).
     sourceSets["test"].java.srcDir("../../../androidlib/src/test/java")
     // The schedules JSON fixture shared with the Dart and Python tests.
