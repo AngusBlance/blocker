@@ -4,6 +4,7 @@ import threading
 
 import websockets
 
+from . import focus
 from .core import HostsBlocker
 
 DEFAULT_WS_PORT = 8766
@@ -27,8 +28,9 @@ async def _ping(port: int, timeout: float) -> None:
 
 
 class SyncServer:
-    def __init__(self, port: int = DEFAULT_WS_PORT):
+    def __init__(self, port: int = DEFAULT_WS_PORT, focus_path=focus.FOCUS_FILE):
         self.port = port
+        self.focus_path = focus_path
         self._loop = None
         self._thread = None
         self._stop_event = None
@@ -84,17 +86,21 @@ class SyncServer:
         finally:
             self._clients.discard(websocket)
 
-    @staticmethod
-    def _state() -> str:
-        """Everything blocked, and whether the "Adult sites" filter is on
-        (its list stays in /etc/hosts; the extension adds keyword rules)."""
+    def _state(self) -> str:
+        """What the extension needs: everything blocked, whether the "Adult
+        sites" filter is on (its list stays in /etc/hosts; the extension adds
+        keyword rules), and focus mode (the sites it allows and when it ends)
+        if it's on."""
         blocker = HostsBlocker()
-        return json.dumps(
-            {
-                "blocked": sorted(blocker.all_blocked_urls),
-                "adult": blocker.adult_blocked,
-            }
-        )
+        current = focus.load(self.focus_path)
+        state = {
+            "blocked": sorted(blocker.all_blocked_urls),
+            "adult": blocker.adult_blocked,
+            "focus": None
+            if current is None
+            else {"until": current.ends_at, "allow": list(current.domains)},
+        }
+        return json.dumps(state)
 
     async def _send_state(self, websocket) -> None:
         await websocket.send(self._state())

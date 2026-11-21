@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Blocker sync",
-  "version": "1.0",
-  "description": "Blocks sites based on the local blocker app's current state.",
-  "permissions": ["declarativeNetRequest", "alarms"],
+  "version": "1.1",
+  "description": "Blocks sites based on the local blocker app, and runs its focus mode.",
+  "permissions": ["declarativeNetRequest", "alarms", "tabs"],
   "background": {
-    "service_worker": "background.js"
-  }
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["focus.html", "focus.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
