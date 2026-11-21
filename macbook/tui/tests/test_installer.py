@@ -1,71 +1,98 @@
-import os
-import plistlib
-import subprocess
+"""installer.py: picking this OS's installer, and the steps every OS
+shares."""
+
 import sys
+import types
+from pathlib import Path
 
 import pytest
 
-from blocker_tui import installer
+from blocker_tui import installer, installer_linux, installer_macos
 
 
-def test_install_block_app_writes_bundle_and_registers_with_launch_services(
-    tmp_path, monkeypatch
-):
-    bundle = tmp_path / "Block.app"
-    monkeypatch.setattr(installer, "APP_BUNDLE", bundle)
+@pytest.mark.parametrize(
+    "platform, module",
+    [("darwin", installer_macos), ("linux", installer_linux)],
+)
+def test_this_os_picks_the_installer_for_the_platform(monkeypatch, platform, module):
+    monkeypatch.setattr(sys, "platform", platform)
+    assert installer.this_os() is module
+
+
+def test_other_oses_are_refused_by_name(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    with pytest.raises(installer.UnsupportedOS, match="win32"):
+        installer.this_os()
+    # The TUI still runs there; it just shows schedules as not installed.
+    assert installer.scheduler_installed() is False
+
+
+def fake_os(calls, scheduler_error=None):
+    def scheduler():
+        calls.append("scheduler")
+        if scheduler_error:
+            raise scheduler_error
+
+    def open_chrome():
+        calls.append("chrome")
+        return True
+
+    return types.SimpleNamespace(
+        install_launcher=lambda: calls.append("launcher") or "/apps/Block",
+        install_sync_daemon=lambda: calls.append("sync"),
+        install_scheduler=scheduler,
+        open_chrome_extensions=open_chrome,
+        SYNC_NAME="sync-unit",
+        SCHEDULER_NAME="scheduler-unit",
+    )
+
+
+def test_install_runs_every_step_of_this_oss_installer(monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: calls.append(a[0]))
+    monkeypatch.setattr(installer, "this_os", lambda: fake_os(calls))
+    monkeypatch.delenv("BLOCKER_NO_SCHEDULER", raising=False)
+    monkeypatch.delenv("BLOCKER_NO_OPEN_CHROME", raising=False)
 
-    result = installer.install_block_app()
+    installer.install()
 
-    assert result == bundle
-    info_plist = (bundle / "Contents" / "Info.plist").read_text()
-    assert "<string>block</string>" in info_plist
-
-    launcher = bundle / "Contents" / "MacOS" / "block"
-    assert "exec block" in launcher.read_text()
-    assert os.access(launcher, os.X_OK)
-
-    assert any(installer.LSREGISTER in cmd for cmd in calls)
+    assert calls == ["launcher", "sync", "scheduler", "chrome"]
+    out = capsys.readouterr().out
+    assert "Installed /apps/Block" in out
+    assert "(sync-unit)" in out
+    assert "Schedule helper installed and running (scheduler-unit)" in out
+    assert "tab that just opened" in out
 
 
-def test_install_sync_daemon_writes_plist_pointing_at_the_entry_point_and_bootstraps(
-    tmp_path, monkeypatch
-):
-    plist_path = tmp_path / "agent.plist"
-    monkeypatch.setattr(installer, "LAUNCH_AGENT_PLIST", plist_path)
-    monkeypatch.setattr(installer, "LOGS_DIR", tmp_path / "logs")
+def test_install_carries_on_without_the_scheduler(monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: calls.append(a[0]))
+    error = RuntimeError("no python")
+    monkeypatch.setattr(installer, "this_os", lambda: fake_os(calls, error))
+    monkeypatch.delenv("BLOCKER_NO_SCHEDULER", raising=False)
+    monkeypatch.setenv("BLOCKER_NO_OPEN_CHROME", "1")
 
-    installer.install_sync_daemon()
+    installer.install()
 
-    content = plist_path.read_text()
-    assert str(installer.VENV_BLOCKER_SYNC) in content
-    assert [cmd[1] for cmd in calls] == ["bootstrap"]
+    assert calls == ["launcher", "sync", "scheduler"]
+    out = capsys.readouterr().out
+    assert "Schedule helper NOT installed: no python" in out
+    assert str(installer.EXTENSION_DIR) in out
 
 
-def test_install_sync_daemon_reloads_cleanly_when_already_installed(
-    tmp_path, monkeypatch
-):
-    plist_path = tmp_path / "agent.plist"
-    plist_path.write_text("stale previous install")
-    monkeypatch.setattr(installer, "LAUNCH_AGENT_PLIST", plist_path)
-    monkeypatch.setattr(installer, "LOGS_DIR", tmp_path / "logs")
+def test_install_can_skip_the_scheduler(monkeypatch):
     calls = []
-    monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: calls.append(a[0]))
-
-    installer.install_sync_daemon()
-
-    assert [cmd[1] for cmd in calls] == ["bootout", "bootstrap"]
+    monkeypatch.setattr(installer, "this_os", lambda: fake_os(calls))
+    monkeypatch.setenv("BLOCKER_NO_SCHEDULER", "1")
+    monkeypatch.setenv("BLOCKER_NO_OPEN_CHROME", "1")
+    installer.install()
+    assert calls == ["launcher", "sync"]
 
 
 def test_print_extension_instructions_points_at_the_real_extension_dir(
     monkeypatch, capsys
 ):
-    monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.delenv("BLOCKER_NO_OPEN_CHROME", raising=False)
 
-    installer.print_extension_instructions()
+    installer.print_extension_instructions(lambda: True)
 
     out = capsys.readouterr().out
     assert str(installer.EXTENSION_DIR) in out
@@ -74,98 +101,12 @@ def test_print_extension_instructions_points_at_the_real_extension_dir(
     assert (installer.EXTENSION_DIR / "manifest.json").is_file()
 
 
-PYTHON = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9"
-
-
-def _fake_sudo(monkeypatch, fail_bootstraps=0):
-    """Records sudo commands; files are captured before their temp dir goes."""
-    calls, copied = [], {}
-    failures = [fail_bootstraps]
-
-    def run(cmd, **kwargs):
-        calls.append(cmd)
-        if cmd[1] == "install" and "-d" not in cmd:
-            copied[cmd[-1]] = open(cmd[-2], "rb").read()
-        returncode = 0
-        if cmd[1:3] == ["launchctl", "bootstrap"] and failures[0]:
-            failures[0] -= 1
-            returncode = 5
-        return subprocess.CompletedProcess(cmd, returncode, b"", b"why it failed")
-
-    monkeypatch.setattr(installer.subprocess, "run", run)
-    monkeypatch.setattr(installer.time, "sleep", lambda s: None)
-    monkeypatch.setattr(installer, "resolve_scheduler_python", lambda: PYTHON)
-    return calls, copied
-
-
-def test_install_scheduler_installs_root_owned_copies_and_a_launch_daemon(
-    tmp_path, monkeypatch
-):
-    schedules = tmp_path / ".blocker" / "schedules.json"
-    monkeypatch.setattr(installer, "SCHEDULES_FILE", schedules)
-    calls, copied = _fake_sudo(monkeypatch)
-
-    installer.install_scheduler()
-
-    assert all(cmd[0] == "sudo" for cmd in calls)
-    assert calls[0] == ["sudo", "rm", "-rf", str(installer.SCHEDULER_DIR)]
-    d = installer.SCHEDULER_DIR
-    assert list(copied) == [
-        str(d / "schedule.py"),
-        str(d / "schedule_helper.py"),
-        str(d / "allowed-domains.txt"),
-        str(installer.NEWSYSLOG_CONF),
-        str(installer.SCHEDULER_PLIST),
-    ]
-    for cmd in calls:
-        if cmd[1] == "install":
-            assert "-o root -g wheel" in " ".join(cmd)
-    for name in installer.SCHEDULER_FILES:
-        assert copied[str(d / name)] == (installer.BLOCKLIB_DIR / name).read_bytes()
-    allowed = copied[str(d / "allowed-domains.txt")].decode().split()
-    assert "youtube.com" in allowed and "www.tiktok.com" in allowed
-    assert not any("apple.com" in a for a in allowed)
-
-    plist = plistlib.loads(copied[str(installer.SCHEDULER_PLIST)])
-    assert plist["Label"] == installer.SCHEDULER_LABEL
-    assert plist["ProgramArguments"] == [
-        PYTHON,
-        "-I",
-        str(d / "schedule_helper.py"),
-        str(schedules),
-    ]
-    assert plist["WatchPaths"] == [str(schedules.parent), "/private/etc/hosts"]
-    assert plist["StartInterval"] == 30
-    assert plist["RunAtLoad"] is True
-    assert plist["StandardErrorPath"] == str(installer.SCHEDULER_LOG)
-    assert schedules.parent.is_dir()  # so there's something to watch
-    assert [cmd[1:3] for cmd in calls[-3:]] == [
-        ["launchctl", "bootout"],
-        ["launchctl", "enable"],
-        ["launchctl", "bootstrap"],
-    ]
-
-
-def test_install_scheduler_retries_a_bootstrap_launchd_refuses_at_first(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr(installer, "SCHEDULES_FILE", tmp_path / "s.json")
-    calls, _ = _fake_sudo(monkeypatch, fail_bootstraps=2)
-    installer.install_scheduler()
-    assert sum(cmd[1:3] == ["launchctl", "bootstrap"] for cmd in calls) == 3
-
-
-def test_install_scheduler_gives_up_saying_why(tmp_path, monkeypatch):
-    monkeypatch.setattr(installer, "SCHEDULES_FILE", tmp_path / "s.json")
-    _fake_sudo(monkeypatch, fail_bootstraps=99)
-    with pytest.raises(RuntimeError, match="why it failed"):
-        installer.install_scheduler()
-
-
-def test_scheduler_plist_escapes_odd_home_paths(monkeypatch, tmp_path):
-    monkeypatch.setattr(installer, "SCHEDULES_FILE", tmp_path / "a&b <c>" / "s.json")
-    plist = plistlib.loads(installer._scheduler_plist(PYTHON))
-    assert plist["ProgramArguments"][-1].endswith("a&b <c>/s.json")
+def test_extension_instructions_without_chrome_say_where_to_go(monkeypatch, capsys):
+    monkeypatch.delenv("BLOCKER_NO_OPEN_CHROME", raising=False)
+    installer.print_extension_instructions(lambda: False)
+    out = capsys.readouterr().out
+    assert "Open chrome://extensions in Chrome" in out
+    assert "just opened" not in out
 
 
 def test_the_interpreter_must_be_root_only(tmp_path):
@@ -173,50 +114,27 @@ def test_the_interpreter_must_be_root_only(tmp_path):
     user_python = tmp_path / "python3"
     user_python.symlink_to(sys.executable)
     with pytest.raises(RuntimeError, match="root-only"):
-        installer.resolve_scheduler_python(user_python)
-    with pytest.raises(RuntimeError, match="Command Line Tools"):
-        installer.resolve_scheduler_python(tmp_path / "missing")
+        installer.resolve_root_python(user_python, "missing")
+    with pytest.raises(RuntimeError, match="no python here"):
+        installer.resolve_root_python(tmp_path / "missing", "no python here")
 
 
-@pytest.mark.skipif(
-    not installer.CLT_PYTHON.exists(), reason="needs the Command Line Tools"
-)
-def test_the_command_line_tools_python_is_accepted():
-    # The stable path, not the versioned file it points at.
-    assert installer.resolve_scheduler_python() == str(installer.CLT_PYTHON)
+def test_the_allowlist_holds_the_known_sites_and_nothing_else():
+    allowed = installer.allowlist_text().split()
+    assert "youtube.com" in allowed and "www.tiktok.com" in allowed
+    assert not any("apple.com" in a or "ubuntu.com" in a for a in allowed)
 
 
-def test_uninstall_clears_the_section_then_removes_everything(tmp_path, monkeypatch):
-    calls, _ = _fake_sudo(monkeypatch)
-    helper_dir = tmp_path / "Blocker"
-    helper_dir.mkdir()
-    (helper_dir / "schedule_helper.py").write_text("")
-    monkeypatch.setattr(installer, "SCHEDULER_DIR", helper_dir)
-    installer.uninstall_scheduler()
-    assert calls[0][1:3] == ["launchctl", "bootout"]  # stopped first
-    assert calls[1][1:] == [
-        PYTHON,
-        "-I",
-        str(helper_dir / "schedule_helper.py"),
-        "--clear",
-    ]
-    assert calls[2][1:3] == ["rm", "-rf"]
-    assert str(installer.SCHEDULER_PLIST) in calls[2]
+def test_root_owned_symlinks_count_as_root_only():
+    # /usr/bin/python3 on Ubuntu is a root-owned symlink, shown as 0777.
+    usr_bin = Path("/usr/bin")
+    links = [p for p in usr_bin.glob("python3*") if p.is_symlink()]
+    if not links or links[0].lstat().st_uid != 0:
+        pytest.skip("no root-owned python3 symlink in /usr/bin")
+    assert installer._root_only(links[0])
 
 
-def test_uninstall_still_removes_the_helper_without_its_python(
-    tmp_path, monkeypatch, capsys
-):
-    calls, _ = _fake_sudo(monkeypatch)
-
-    def no_python():
-        raise RuntimeError("no Command Line Tools")
-
-    monkeypatch.setattr(installer, "resolve_scheduler_python", no_python)
-    helper_dir = tmp_path / "Blocker"
-    helper_dir.mkdir()
-    (helper_dir / "schedule_helper.py").write_text("")
-    monkeypatch.setattr(installer, "SCHEDULER_DIR", helper_dir)
-    installer.uninstall_scheduler()
-    assert [c[1] for c in calls] == ["launchctl", "rm"]
-    assert "by hand" in capsys.readouterr().out
+def test_a_user_owned_symlink_isnt_root_only(tmp_path):
+    link = tmp_path / "python3"
+    link.symlink_to("/usr/bin/env")
+    assert not installer._root_only(link)

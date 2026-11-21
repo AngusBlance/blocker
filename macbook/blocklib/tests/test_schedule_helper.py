@@ -18,7 +18,12 @@ from blocklib import schedule_helper as helper
 from blocklib.core import BEGIN_MARK, END_MARK, HostsBlocker
 from blocklib.sync_daemon import run
 
-CLT_PYTHON = "/Library/Developer/CommandLineTools/usr/bin/python3"
+# The python the installed helper runs with on each OS.
+ROOT_PYTHON = (
+    "/Library/Developer/CommandLineTools/usr/bin/python3"
+    if sys.platform == "darwin"
+    else "/usr/bin/python3"
+)
 LONDON = ZoneInfo("Europe/London")
 MONDAY_10AM = datetime(2026, 10, 12, 10, tzinfo=LONDON)
 BASE = "127.0.0.1 localhost\n::1 localhost\n"
@@ -200,9 +205,7 @@ def test_installed_copy_runs_standalone_in_isolated_mode(tmp_path):
     assert "usage" in result.stderr
 
 
-@pytest.mark.skipif(
-    not Path(CLT_PYTHON).exists(), reason="needs the Command Line Tools' python"
-)
+@pytest.mark.skipif(not Path(ROOT_PYTHON).exists(), reason=f"needs {ROOT_PYTHON}")
 def test_the_real_interpreter_applies_schedules_from_the_installed_copy(tmp_path):
     install = tmp_path / "Blocker"
     install.mkdir()
@@ -221,7 +224,7 @@ def test_the_real_interpreter_applies_schedules_from_the_installed_copy(tmp_path
         f" flush=lambda: None, lock_path=pathlib.Path({str(tmp_path / 'lock')!r})))"
     )
     result = subprocess.run(
-        [CLT_PYTHON, "-I", "-c", script], capture_output=True, text=True
+        [ROOT_PYTHON, "-I", "-c", script], capture_output=True, text=True
     )
     assert result.stdout.strip() == "True", result.stderr
     assert helper.scheduled_hostnames(hosts_path.read_text()) == {
@@ -393,3 +396,24 @@ def test_a_held_lock_times_out_instead_of_hanging(tmp_path):
         os.close(fd)
     with helper.locked(lock, wait=0.2):
         assert lock.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize(
+    "platform, first",
+    [("darwin", "/usr/bin/dscacheutil"), ("linux", "/usr/bin/resolvectl")],
+)
+def test_flush_dns_uses_this_oss_resolver(monkeypatch, platform, first):
+    calls = []
+    monkeypatch.setattr(helper.sys, "platform", platform)
+    monkeypatch.setattr(helper.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    helper.flush_dns()
+    assert calls[0][0] == first
+
+
+def test_flush_dns_shrugs_off_a_missing_resolver(monkeypatch):
+    # Not every Linux runs systemd-resolved; the hosts file is written anyway.
+    def missing(cmd, **kw):
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(helper.subprocess, "run", missing)
+    helper.flush_dns()

@@ -63,6 +63,9 @@ def test_blocker_tui_wheel_has_the_real_package_and_console_script(built_wheels)
     assert "blocker_tui/__init__.py" in names
     assert "blocker_tui/app.py" in names
     assert "blocker_tui/installer.py" in names
+    # `block install` picks one of these at run time, so both must ship.
+    assert "blocker_tui/installer_macos.py" in names
+    assert "blocker_tui/installer_linux.py" in names
     assert "block = blocker_tui.app:main" in entry_points
 
 

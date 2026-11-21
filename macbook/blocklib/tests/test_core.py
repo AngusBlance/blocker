@@ -1,3 +1,9 @@
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
 from blocklib.core import BEGIN_MARK, END_MARK, HostsBlocker
 
 BASE_HOSTS = "127.0.0.1 localhost\n::1 localhost\n"
@@ -134,13 +140,50 @@ def test_repr_includes_hosts_path(tmp_path):
     assert str(path) in repr(HostsBlocker(path))
 
 
-def test_privileged_writes_take_the_schedule_helpers_lock(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "platform, lock, flush",
+    [
+        ("darwin", ["/usr/bin/lockf", "-k"], ["sudo", "/usr/bin/dscacheutil"]),
+        ("linux", ["/usr/bin/flock", "-w"], ["sudo", "resolvectl"]),
+    ],
+)
+def test_privileged_writes_take_the_schedule_helpers_lock(
+    tmp_path, monkeypatch, platform, lock, flush
+):
     from blocklib import core
     from blocklib.schedule_helper import LOCK_FILE
 
     calls = []
+    monkeypatch.setattr(core.sys, "platform", platform)
     monkeypatch.setattr(core.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
-    HostsBlocker(write_hosts(tmp_path, BASE_HOSTS)).block("netflix.com")
+    hosts = write_hosts(tmp_path, BASE_HOSTS)
+    HostsBlocker(hosts).block("netflix.com")
     cp = calls[0]
-    assert cp[:3] == ["sudo", "/usr/bin/lockf", "-k"]
-    assert str(LOCK_FILE) in cp and cp[-3] == "cp"
+    assert cp[:3] == ["sudo", *lock]
+    assert str(LOCK_FILE) in cp and cp[-3] == "cp" and cp[-1] == str(hosts)
+    assert calls[1][:2] == flush
+
+
+@pytest.mark.skipif(
+    not Path("/usr/bin/flock").exists(), reason="needs util-linux flock"
+)
+def test_the_linux_lock_command_really_waits_for_the_helpers_lock(tmp_path):
+    """flock(1) and the helper's fcntl.flock exclude each other: the copy
+    can't land while the helper holds the lock."""
+    from blocklib import core, schedule_helper
+
+    lock = tmp_path / "hosts.lock"
+    target = tmp_path / "hosts"
+    target.write_text("old")
+    src = tmp_path / "new"
+    src.write_text("new")
+    with patch.object(core.sys, "platform", "linux"):
+        cmd = [
+            c if c != str(core.LOCK_FILE) else str(lock) for c in core._holding_lock()
+        ]
+    cmd[cmd.index("10")] = "0"  # give up straight away rather than wait
+    with schedule_helper.locked(lock):
+        held = subprocess.run([*cmd, "cp", str(src), str(target)])
+    assert held.returncode != 0 and target.read_text() == "old"
+    free = subprocess.run([*cmd, "cp", str(src), str(target)])
+    assert free.returncode == 0 and target.read_text() == "new"

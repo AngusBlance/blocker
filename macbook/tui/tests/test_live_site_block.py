@@ -1,6 +1,7 @@
 import os
 import socket
 import subprocess
+import sys
 
 import pytest
 
@@ -22,9 +23,13 @@ def resolved_ip(url: str) -> str:
         return "(no resolution)"
 
 
+# Seconds to wait for a reply: -t on macOS, -W on Linux (where -t is the TTL).
+PING_TIMEOUT = "-t" if sys.platform == "darwin" else "-W"
+
+
 def ping_once(url: str) -> str:
     result = subprocess.run(
-        ["ping", "-c", "1", "-t", "2", url],
+        ["ping", "-c", "1", PING_TIMEOUT, "2", url],
         capture_output=True,
         text=True,
     )

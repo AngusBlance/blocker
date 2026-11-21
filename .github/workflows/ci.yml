@@ -16,9 +16,14 @@ concurrency:
 
 jobs:
   macbook-python:
-    name: macbook / Python
-    # The desktop app is macOS-only (sudo, /etc/hosts, launchd).
-    runs-on: macos-latest
+    name: macbook / Python (${{ matrix.os }})
+    # The desktop app runs on macOS (launchd) and Linux (systemd); the
+    # installer picks by OS, so test on both.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: macbook
