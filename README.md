@@ -1,8 +1,8 @@
 # blocker
 
-Site blocker for macOS and Android.
+Site blocker for macOS, Ubuntu and Android.
 
-- `macbook/`: Python (uv), plus the Chrome extension.
+- `macbook/`: the desktop app (macOS and Ubuntu), in Python (uv), plus the Chrome extension.
   - `blocklib/`: backend, blocks sites by editing `/etc/hosts`.
   - `tui/`: Textual app, the `block` command.
   - `extension/`: Chrome extension that syncs with the desktop app. `src/` is what Chrome loads; the rest is its own npm lint setup.
@@ -20,6 +20,18 @@ block install
 ```
 
 `block install` sets up the sync agent and walks you through loading `macbook/extension/src` in Chrome.
+
+## Ubuntu
+
+The same app and the same steps; `block install` checks the OS and sets things up the Linux way:
+
+```sh
+cd macbook
+uv tool install --editable ./tui
+block install
+```
+
+That puts Block in the app menu, runs the sync daemon as a systemd user service (`blocker-sync.service`), and installs the schedule helper as root-owned systemd units (`blocker-scheduler.timer` and `.path`, logging to `journalctl -u blocker-scheduler`), so sudo asks for your password once. Built and tested on Ubuntu 24.04.
 
 ## Android
 

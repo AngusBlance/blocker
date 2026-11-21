@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,16 @@ from .schedule_helper import LOCK_FILE, scheduled_hostnames
 HOSTS_FILE = Path("/etc/hosts")
 BEGIN_MARK = "# BLOCKER-BEGIN"
 END_MARK = "# BLOCKER-END"
+
+
+def _holding_lock() -> list:
+    """Command prefix that runs the rest holding the root schedule helper's
+    lock, so neither undoes the other's change. Both tools take the same
+    flock-style lock as the helper."""
+    if sys.platform == "darwin":
+        # -k keeps the lock file for the next user.
+        return ["/usr/bin/lockf", "-k", "-t", "10", str(LOCK_FILE)]
+    return ["/usr/bin/flock", "-w", "10", str(LOCK_FILE)]
 
 
 class HostsBlocker:
@@ -80,20 +91,8 @@ class HostsBlocker:
             tmp.write(content)
             tmp_path = tmp.name
         try:
-            # Same lock as the root schedule helper, so neither undoes the
-            # other's change; -k keeps the lock file for the next user.
             subprocess.run(
-                [
-                    "sudo",
-                    "/usr/bin/lockf",
-                    "-k",
-                    "-t",
-                    "10",
-                    str(LOCK_FILE),
-                    "cp",
-                    tmp_path,
-                    str(self.hosts_path),
-                ],
+                ["sudo", *_holding_lock(), "cp", tmp_path, str(self.hosts_path)],
                 check=True,
             )
         finally:
@@ -101,10 +100,17 @@ class HostsBlocker:
 
     @staticmethod
     def _flush_dns() -> None:
-        subprocess.run(["sudo", "/usr/bin/dscacheutil", "-flushcache"], check=True)
-        subprocess.run(
-            ["sudo", "/usr/bin/killall", "-HUP", "mDNSResponder"], check=True
-        )
+        if sys.platform == "darwin":
+            subprocess.run(["sudo", "/usr/bin/dscacheutil", "-flushcache"], check=True)
+            subprocess.run(
+                ["sudo", "/usr/bin/killall", "-HUP", "mDNSResponder"], check=True
+            )
+        else:
+            # systemd-resolved rereads /etc/hosts by itself; this drops what
+            # it cached from DNS before. Not every Linux runs it.
+            subprocess.run(
+                ["sudo", "resolvectl", "flush-caches"], check=False, capture_output=True
+            )
 
     @staticmethod
     def _extract_block(content: str):

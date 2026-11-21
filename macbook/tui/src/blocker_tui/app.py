@@ -733,8 +733,9 @@ class BlockerApp(App):
 USAGE = (
     "usage: block [install | uninstall-scheduler]\n"
     "  (no arguments)       launch the TUI\n"
-    "  install              set up Block.app, the sync daemon, the schedule\n"
-    "                       helper, and print Chrome extension instructions\n"
+    "  install              set up this OS's Block launcher, the sync daemon,\n"
+    "                       the schedule helper, and print Chrome extension\n"
+    "                       instructions (macOS and Linux)\n"
     "  uninstall-scheduler  remove the schedule helper and its blocks"
 )
 
@@ -742,16 +743,20 @@ USAGE = (
 def main() -> None:
     if len(sys.argv) > 1:
         if sys.argv[1] == "install":
-            from blocker_tui.installer import install
+            from blocker_tui.installer import UnsupportedOS, install
 
-            install()
+            try:
+                install()
+            except UnsupportedOS as e:
+                print(e)
+                sys.exit(1)
             return
         if sys.argv[1] == "uninstall-scheduler":
             from blocker_tui.installer import uninstall_scheduler
 
             try:
                 uninstall_scheduler()
-            except (OSError, subprocess.CalledProcessError) as e:
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as e:
                 print(f"Couldn't remove the schedule helper: {e}")
                 sys.exit(1)
             print("Schedule helper removed")

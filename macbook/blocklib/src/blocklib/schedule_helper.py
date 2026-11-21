@@ -1,9 +1,10 @@
-"""Applies schedules to /etc/hosts. Runs as root from a LaunchDaemon.
+"""Applies schedules to /etc/hosts. Runs as root: from a LaunchDaemon on
+macOS, from systemd units on Linux.
 
 `block install` copies this file, schedule.py and an allowlist of blockable
-domains into a root-owned folder (/Library/Application Support/Blocker) and
-runs it with the Command Line Tools' python every 30 seconds and whenever
-~/.blocker changes:
+domains into a root-owned folder (/Library/Application Support/Blocker on
+macOS, /usr/local/lib/blocker on Linux) and runs it with the system's own
+python every 30 seconds and whenever ~/.blocker changes:
 
     python3 -I schedule_helper.py /Users/me/.blocker/schedules.json
     python3 -I schedule_helper.py --clear      # remove the section (uninstall)
@@ -16,7 +17,7 @@ The schedules file is written by the user, so as root this treats it as
 hostile: it never blocks on or follows it, survives any JSON, and only ever
 writes hostnames from the root-owned allowlist (so a user process can't use
 it to redirect, say, Apple's update servers). Writes to /etc/hosts hold
-LOCK_FILE, which core.py's `sudo lockf ... cp` also takes, so manual blocks
+LOCK_FILE, which core.py's `sudo lockf/flock ... cp` also takes, so manual blocks
 and scheduled ones can't overwrite each other.
 """
 
@@ -243,8 +244,17 @@ def _write_hosts(target: Path, content: str, before: os.stat_result) -> bool:
 
 
 def flush_dns() -> None:
-    subprocess.run(["/usr/bin/dscacheutil", "-flushcache"], check=False)
-    subprocess.run(["/usr/bin/killall", "-HUP", "mDNSResponder"], check=False)
+    if sys.platform == "darwin":
+        commands = [
+            ["/usr/bin/dscacheutil", "-flushcache"],
+            ["/usr/bin/killall", "-HUP", "mDNSResponder"],
+        ]
+    else:
+        # systemd-resolved, where it runs; it rereads /etc/hosts by itself.
+        commands = [["/usr/bin/resolvectl", "flush-caches"]]
+    for cmd in commands:
+        with contextlib.suppress(OSError):
+            subprocess.run(cmd, check=False, capture_output=True)
 
 
 def apply_names(
