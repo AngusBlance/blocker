@@ -63,8 +63,10 @@ function pageRule(id, regexFilter) {
   };
 }
 
+// A focus can allow no sites at all (only apps, on Linux): then every page
+// goes to the focus page.
 export function focusActive(focus, now) {
-  return Boolean(focus && focus.until > now && focus.allow.length > 0);
+  return Boolean(focus && focus.until > now && Array.isArray(focus.allow));
 }
 
 // The page a blocked tab goes to, saying until when and what's allowed.
@@ -75,14 +77,20 @@ export function focusPagePath(focus) {
 
 export function focusRules(focus, now) {
   if (!focusActive(focus, now)) return [];
+  // Chrome refuses a rule with an empty requestDomains.
+  const allowRule = focus.allow.length
+    ? [
+        {
+          id: FOCUS_ALLOW_ID,
+          priority: FOCUS_ALLOW_PRIORITY,
+          action: { type: 'allow' },
+          // requestDomains matches subdomains too: udemy.com allows www.udemy.com.
+          condition: { requestDomains: focus.allow, resourceTypes: ['main_frame'] },
+        },
+      ]
+    : [];
   return [
-    {
-      id: FOCUS_ALLOW_ID,
-      priority: FOCUS_ALLOW_PRIORITY,
-      action: { type: 'allow' },
-      // requestDomains matches subdomains too: udemy.com allows www.udemy.com.
-      condition: { requestDomains: focus.allow, resourceTypes: ['main_frame'] },
-    },
+    ...allowRule,
     {
       id: FOCUS_BLOCK_ID,
       priority: FOCUS_BLOCK_PRIORITY,

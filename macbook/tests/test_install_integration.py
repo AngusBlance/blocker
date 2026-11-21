@@ -158,7 +158,7 @@ def test_block_install_is_idempotent(editable_venv, tmp_path):
         )
 
 
-def _linux_env(fake_home: Path, unit: str) -> dict:
+def _linux_env(fake_home: Path, unit: str, focus_unit: str) -> dict:
     env = dict(
         os.environ,
         HOME=str(fake_home),
@@ -166,6 +166,7 @@ def _linux_env(fake_home: Path, unit: str) -> dict:
         # the throwaway unit goes there; everything else goes in fake_home
         XDG_CONFIG_HOME=str(Path.home() / ".config"),
         BLOCKER_SYNC_UNIT=unit,
+        BLOCKER_FOCUS_APPS_UNIT=focus_unit,
         BLOCKER_NO_OPEN_CHROME="1",
         BLOCKER_NO_SCHEDULER="1",  # needs sudo
     )
@@ -208,7 +209,8 @@ def test_block_install_creates_a_desktop_entry_and_a_running_user_service(
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     unit = f"blocker-sync-test-{os.getpid()}-{runs}"
-    env = _linux_env(fake_home, unit)
+    focus_unit = f"blocker-focus-apps-test-{os.getpid()}-{runs}"
+    env = _linux_env(fake_home, unit, focus_unit)
 
     try:
         for _ in range(runs):
@@ -231,5 +233,8 @@ def test_block_install_creates_a_desktop_entry_and_a_running_user_service(
             text=True,
         )
         assert enabled.stdout.strip() == "enabled"
+        assert f"{focus_unit}.service" in result.stdout
+        assert _wait_until_active(focus_unit) == "active"
     finally:
         _remove_user_unit(unit)
+        _remove_user_unit(focus_unit)

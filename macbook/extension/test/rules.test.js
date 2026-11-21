@@ -34,11 +34,22 @@ test('focus blocks every page, lets the allowed ones through, and blocks still w
   assert.equal(new Set(rules.map((r) => r.id)).size, rules.length);
 });
 
-test('no rules when focus is off, over, or allows nothing', () => {
+test('no rules when focus is off or over', () => {
   assert.deepEqual(focusRules(null, now), []);
   assert.deepEqual(focusRules({ ...focus, until: now }, now), []);
-  assert.deepEqual(focusRules({ ...focus, allow: [] }, now), []);
+  assert.deepEqual(focusRules({ until: now + 1000 }, now), []);
   assert.equal(focusActive(focus, now), true);
+});
+
+test('a focus that allows no sites (only apps) sends every page away', () => {
+  const appsOnly = { ...focus, allow: [] };
+  assert.equal(focusActive(appsOnly, now), true);
+  const rules = focusRules(appsOnly, now);
+  assert.deepEqual(
+    rules.map((r) => r.id),
+    [FOCUS_BLOCK_ID],
+  );
+  assert.equal(tabAllowed('https://example.com/', appsOnly.allow), false);
 });
 
 test('the focus page says until when and what is allowed', () => {

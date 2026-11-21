@@ -15,8 +15,8 @@ function render() {
   status.textContent = `Focus is on until ${clock} (${minutes} min left).`;
 }
 
-if (allow.length) {
-  document.getElementById('allowed').textContent = `Only ${allow.join(', ')} can be open.`;
-}
+document.getElementById('allowed').textContent = allow.length
+  ? `Only ${allow.join(', ')} can be open.`
+  : 'No sites can be open.';
 render();
 setInterval(render, 15000);

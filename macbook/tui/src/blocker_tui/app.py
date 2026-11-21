@@ -15,7 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static
 
 from blocker_tui import schedules as sched_ui
-from blocker_tui.focus_editor import FocusEditor
+from blocker_tui.focus_editor import FocusEditor, no_markup
 from blocker_tui.installer import scheduler_installed
 from blocker_tui.schedule_editor import ScheduleEditor
 from blocklib import focus as focus_mode
@@ -32,15 +32,25 @@ from blocklib.schedule import (
 )
 from blocklib.ws_server import DEFAULT_WS_PORT, SyncServer, notify_external_daemon
 
-SECTIONS = [
-    "dashboard",
-    "sites",
-    "schedule",
-    "focus",
-    "unlock",
-    "activity",
-    "settings",
-]
+
+def focus_supported(platform: str = sys.platform) -> bool:
+    """Focus mode is Linux only so far; on the Mac the TUI stays as it was."""
+    return platform.startswith("linux")
+
+
+def sections(platform: str = sys.platform) -> list:
+    return [
+        "dashboard",
+        "sites",
+        "schedule",
+        *(["focus"] if focus_supported(platform) else []),
+        "unlock",
+        "activity",
+        "settings",
+    ]
+
+
+SECTIONS = sections()
 
 SECTION_CONTENT = {
     "dashboard": "dashboard view (placeholder)",
@@ -82,6 +92,37 @@ def load_focus():
     return focus_mode.load(FOCUS_PATH, focus_now())
 
 
+def choosable_apps() -> "tuple[list, list]":
+    """The apps a focus can allow here (AllowedApp), and those of them that
+    start at login, which the editor ticks to begin with."""
+    if not focus_supported():
+        return [], []
+    from blocklib import linux_apps
+
+    found = linux_apps.choosable(
+        linux_apps.installed_apps(linux_apps.application_dirs())
+    )
+    login = linux_apps.at_login(
+        found,
+        linux_apps.autostart_ids(
+            linux_apps.autostart_dirs(), linux_apps.current_desktops()
+        ),
+    )
+
+    def allowed(apps):
+        return [focus_mode.AllowedApp(a.id, a.name) for a in apps]
+
+    return allowed(found), allowed(login)
+
+
+def _allows(current) -> str:
+    """What a focus allows, for people: "Google Docs, Udemy · apps Obsidian"."""
+    parts = [", ".join(current.sites) if current.sites else "no sites"]
+    if current.apps:
+        parts.append("apps " + ", ".join(a.name for a in current.apps))
+    return no_markup(" · ".join(parts))  # names come from .desktop files
+
+
 def _clock(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000).strftime("%H:%M")
 
@@ -93,8 +134,9 @@ def focus_text() -> str:
             [
                 "FOCUS",
                 "  off. while it's on, only the sites you allow can be open in",
-                "  Chrome; everything else goes to the focus page until it ends.",
-                "  (needs the Chrome extension: see `block install`.)",
+                "  Chrome (everything else goes to the focus page) and only the",
+                "  apps you allow can run (others close) until it ends.",
+                "  (needs the Chrome extension and `block install`.)",
                 "",
                 "  (s) start focus",
             ]
@@ -104,7 +146,7 @@ def focus_text() -> str:
         [
             "FOCUS",
             f"  on until {_clock(current.ends_at)} · {sched_ui.format_remaining(left)} left",
-            f"  allows   {', '.join(current.sites)}",
+            f"  allows   {_allows(current)}",
             "",
             "  (e) end early (needs the unlock password)",
         ]
@@ -132,7 +174,7 @@ def dashboard_text(hosts_path: Path = HOSTS_FILE, sync_running: bool = False) ->
     if current is not None:
         lines.append(
             f"  focus           until {_clock(current.ends_at)} · "
-            f"allows {', '.join(current.sites)}"
+            f"allows {_allows(current)}"
         )
     return "\n".join(lines)
 
@@ -722,7 +764,15 @@ class BlockerApp(App):
             self.query_one(Content).refresh(layout=True)
 
         blocked = HostsBlocker().all_blocked_urls
-        self.push_screen(FocusEditor(start, blocked=blocked, now_ms=focus_now))
+        try:
+            apps, ticked = choosable_apps()
+        except OSError:
+            apps, ticked = [], []
+        self.push_screen(
+            FocusEditor(
+                start, blocked=blocked, now_ms=focus_now, apps=apps, ticked=ticked
+            )
+        )
 
     def _end_focus(self) -> None:
         if load_focus() is None:

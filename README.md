@@ -31,7 +31,22 @@ uv tool install --editable ./tui
 block install
 ```
 
-That puts Block in the app menu, runs the sync daemon as a systemd user service (`blocker-sync.service`), and installs the schedule helper as root-owned systemd units (`blocker-scheduler.timer` and `.path`, logging to `journalctl -u blocker-scheduler`), so sudo asks for your password once. Built and tested on Ubuntu 24.04.
+That puts Block in the app menu, runs the sync daemon as a systemd user service (`blocker-sync.service`), and installs the schedule helper as root-owned systemd units (`blocker-scheduler.timer` and `.path`, logging to `journalctl -u blocker-scheduler`), so sudo asks for your password once. Built and tested on Ubuntu 24.04; focus also on 26.04 (GNOME 50, Wayland).
+
+### Focus sessions
+
+The TUI's **focus** section starts a session for 25 minutes to 2 hours: pick the sites and apps you still need, and until it ends:
+
+- in Chrome, only those sites open; every other page (and any tab already open) goes to a focus page;
+- only those apps can run; any other app is closed as it opens, with a notification.
+
+It ends on time by itself, survives a restart, and ending it early needs the unlock password. Sites you've blocked stay blocked even if you allow them.
+
+Always allowed, so focus can't break the desktop: Chrome itself (and web apps installed from it), Block, and your terminal with anything started from it. Apps that start at login (a tablet driver, say) come ticked in the allow list; untick one to have it closed too. Other browsers can't be allowed, since the extension only works in Chrome. Apps are closed by a user service, `blocker-focus-apps.service` (`journalctl --user -u blocker-focus-apps`), which `block install` sets up. It's a commitment device, not a lock: `systemctl --user stop blocker-focus-apps` turns it off, and an app started from a terminal isn't closed.
+
+After updating: run `uv sync` in `macbook/` (it builds `blocker-focus-apps`), then `block install` again, and reload the extension at `chrome://extensions` (it now needs access to every site, to send pages away).
+
+Focus is Ubuntu only for now; on macOS the TUI has no focus section yet.
 
 ## Android
 

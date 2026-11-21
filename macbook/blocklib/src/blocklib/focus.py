@@ -1,6 +1,7 @@
-"""Focus mode on the Mac: until it ends, only the allowed sites can be open in
-Chrome. The extension enforces it (an allow list can't be done in
-/etc/hosts, which can only block names); this is the model and the store,
+"""Focus mode: until it ends, only the allowed sites can be open in Chrome
+and, on Linux, only the allowed apps can run. The extension enforces the
+sites (an allow list can't be done in /etc/hosts, which can only block
+names) and linux_apps.py the apps; this is the model and the store,
 ~/.blocker/focus.json, written by the TUI and sent to the extension by the
 sync server.
 
@@ -35,10 +36,17 @@ class FocusError(ValueError):
 
 
 @dataclass(frozen=True)
+class AllowedApp:
+    id: str  # desktop ID, e.g. "obsidian_obsidian" (see linux_apps.py)
+    name: str  # shown in the TUI, e.g. "Obsidian"
+
+
+@dataclass(frozen=True)
 class Focus:
     ends_at: int  # epoch ms
     sites: Tuple[str, ...]  # names shown in the TUI: presets and typed domains
     domains: Tuple[str, ...]  # what's allowed; subdomains included
+    apps: Tuple[AllowedApp, ...] = ()  # Linux only so far
 
     def is_active(self, now_ms: int) -> bool:
         return now_ms < self.ends_at
@@ -48,6 +56,7 @@ class Focus:
             "endsAt": self.ends_at,
             "sites": list(self.sites),
             "domains": list(self.domains),
+            "apps": [{"id": a.id, "name": a.name} for a in self.apps],
         }
 
     @classmethod
@@ -57,7 +66,12 @@ class Focus:
         ends_at = data.get("endsAt")
         if not isinstance(ends_at, int) or isinstance(ends_at, bool):
             raise FocusError("endsAt should be a whole number")
-        return cls(ends_at, _strings(data, "sites"), _strings(data, "domains"))
+        return cls(
+            ends_at,
+            _strings(data, "sites"),
+            _strings(data, "domains"),
+            _apps(data.get("apps", [])),
+        )
 
 
 def normalize_domain(text: str) -> Optional[str]:
@@ -98,18 +112,21 @@ def active(text: Optional[str], now_ms: int) -> Optional[Focus]:
 def start(stored: Optional[str], focus: Focus, now_ms: int) -> str:
     """The text to store to start `focus`. One at a time (end it first,
     which needs the password), at most 12 hours, and it must allow
-    something."""
+    something: a site or an app."""
     if active(stored, now_ms) is not None:
         raise FocusError("focus is already on")
     if focus.ends_at <= now_ms:
         raise FocusError("focus must end in the future")
     if focus.ends_at - now_ms > MAX_MS:
         raise FocusError("focus can last at most 12 hours")
-    if not focus.domains:
-        raise FocusError("allow at least one site")
+    if not focus.domains and not focus.apps:
+        raise FocusError("allow at least one site or app")
     for d in focus.domains:
         if not valid_hostname(d):
             raise FocusError(f"not a domain: {d}")
+    for a in focus.apps:
+        if not valid_app_id(a.id):
+            raise FocusError(f"not an app: {a.id}")
     return json.dumps(focus.to_json())
 
 
@@ -149,6 +166,27 @@ def save_end(password_ok: bool, path: Path = FOCUS_FILE, now: Optional[int] = No
     if result == ENDED:
         path.unlink(missing_ok=True)
     return result
+
+
+def valid_app_id(app_id: str) -> bool:
+    """A desktop ID: a file name, so no slashes, as .desktop files have."""
+    return 0 < len(app_id) <= 255 and "/" not in app_id and app_id.strip() == app_id
+
+
+def _apps(values: object) -> Tuple[AllowedApp, ...]:
+    """Files from before apps (and the Mac's) have none."""
+    if not isinstance(values, list):
+        raise FocusError("apps should be a list")
+    apps = []
+    for v in values:
+        if not (
+            isinstance(v, dict)
+            and isinstance(v.get("id"), str)
+            and isinstance(v.get("name"), str)
+        ):
+            raise FocusError("each app should have an id and a name")
+        apps.append(AllowedApp(v["id"], v["name"]))
+    return tuple(apps)
 
 
 def _strings(data: dict, key: str) -> Tuple[str, ...]:

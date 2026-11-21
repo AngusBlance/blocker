@@ -36,6 +36,13 @@ SYNC_NAME = f"{SYNC_UNIT}.service"
 USER_UNIT_DIR = _xdg_dir("XDG_CONFIG_HOME", ".config") / "systemd" / "user"
 SYNC_UNIT_FILE = USER_UNIT_DIR / SYNC_NAME
 
+# Closes the apps a focus session doesn't allow (blocklib/linux_apps.py).
+# Linux only: nothing like it runs on the Mac. Overridable like SYNC_UNIT.
+VENV_BLOCKER_FOCUS_APPS = VENV_BLOCKER_SYNC.parent / "blocker-focus-apps"
+FOCUS_APPS_UNIT = os.environ.get("BLOCKER_FOCUS_APPS_UNIT", "blocker-focus-apps")
+FOCUS_APPS_NAME = f"{FOCUS_APPS_UNIT}.service"
+FOCUS_APPS_UNIT_FILE = USER_UNIT_DIR / FOCUS_APPS_NAME
+
 SCHEDULER_UNIT = "blocker-scheduler"
 SCHEDULER_NAME = f"{SCHEDULER_UNIT}.timer"
 SCHEDULER_DIR = Path("/usr/local/lib/blocker")
@@ -110,16 +117,51 @@ def _systemctl_user(*args: str) -> None:
     subprocess.run(["systemctl", "--user", *args], check=True)
 
 
+def _install_user_service(path: Path, text: str, name: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    _systemctl_user("daemon-reload")
+    _systemctl_user("enable", name)
+    # restart, not start: an install after a code update runs the new code
+    _systemctl_user("restart", name)
+
+
 def install_sync_daemon() -> None:
     """Writes the user service and (re)starts it so the sync daemon runs now
     and on every future login. Its output goes to the journal
     (`journalctl --user -u blocker-sync`)."""
-    SYNC_UNIT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SYNC_UNIT_FILE.write_text(_sync_unit())
-    _systemctl_user("daemon-reload")
-    _systemctl_user("enable", SYNC_NAME)
-    # restart, not start: an install after a code update runs the new code
-    _systemctl_user("restart", SYNC_NAME)
+    _install_user_service(SYNC_UNIT_FILE, _sync_unit(), SYNC_NAME)
+
+
+def _focus_apps_unit() -> str:
+    return dedent(f"""\
+        [Unit]
+        Description=Blocker: close apps a focus session doesn't allow
+
+        [Service]
+        ExecStart={_exec_arg(str(VENV_BLOCKER_FOCUS_APPS))}
+        WorkingDirectory={_unit_escape(str(REPO_ROOT))}
+        Restart=always
+        RestartSec=2
+
+        [Install]
+        WantedBy=default.target
+        """)
+
+
+def install_focus_apps() -> None:
+    """The user service that closes apps during focus. It runs all the time
+    but does nothing unless a focus is on (and picks one up after a restart).
+    Its output goes to `journalctl --user -u blocker-focus-apps`."""
+    # systemd "starts" a service whose program is missing without a word,
+    # then it fails over and over: the entry point appears only once the
+    # repo's venv is synced after an update.
+    if not VENV_BLOCKER_FOCUS_APPS.exists():
+        raise RuntimeError(
+            f"{VENV_BLOCKER_FOCUS_APPS} is missing: run `uv sync` in {REPO_ROOT}, "
+            "then `block install` again"
+        )
+    _install_user_service(FOCUS_APPS_UNIT_FILE, _focus_apps_unit(), FOCUS_APPS_NAME)
 
 
 def resolve_scheduler_python(candidate: Path = SYSTEM_PYTHON) -> str:

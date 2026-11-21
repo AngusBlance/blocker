@@ -85,6 +85,48 @@ def test_install_sync_daemon_writes_a_user_service_for_the_entry_point(
     ]
 
 
+def test_install_focus_apps_writes_a_user_service_for_its_entry_point(
+    tmp_path, monkeypatch
+):
+    unit = tmp_path / "systemd" / "user" / "blocker-focus-apps.service"
+    monkeypatch.setattr(installer, "FOCUS_APPS_UNIT_FILE", unit)
+    entry_point = tmp_path / "bin" / "blocker-focus-apps"
+    entry_point.parent.mkdir()
+    entry_point.touch()
+    monkeypatch.setattr(installer, "VENV_BLOCKER_FOCUS_APPS", entry_point)
+    calls = fake_systemctl(monkeypatch)
+
+    installer.install_focus_apps()
+
+    service = configparser.ConfigParser(interpolation=None)
+    service.read_string(unit.read_text())
+    assert service["Service"]["ExecStart"] == f'"{entry_point}"'
+    assert service["Service"]["Restart"] == "always"
+    assert service["Install"]["WantedBy"] == "default.target"
+    name = installer.FOCUS_APPS_NAME
+    assert calls == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", name],
+        ["systemctl", "--user", "restart", name],
+    ]
+
+
+def test_the_real_focus_apps_entry_point_is_in_the_repo_venv():
+    assert str(installer.VENV_BLOCKER_FOCUS_APPS).endswith(
+        "/.venv/bin/blocker-focus-apps"
+    )
+
+
+def test_install_focus_apps_refuses_when_its_program_isnt_built(tmp_path, monkeypatch):
+    unit = tmp_path / "blocker-focus-apps.service"
+    monkeypatch.setattr(installer, "FOCUS_APPS_UNIT_FILE", unit)
+    monkeypatch.setattr(installer, "VENV_BLOCKER_FOCUS_APPS", tmp_path / "missing")
+    calls = fake_systemctl(monkeypatch)
+    with pytest.raises(RuntimeError, match="uv sync"):
+        installer.install_focus_apps()
+    assert calls == [] and not unit.exists()
+
+
 def test_unit_values_escape_specifiers_and_quotes():
     assert installer._exec_arg('/a b/50%/"x"/$HOME') == ('"/a b/50%%/\\"x\\"/$$HOME"')
 
@@ -294,6 +336,17 @@ def test_systemd_accepts_the_sync_unit(tmp_path):
         pytest.skip("no .venv/bin/blocker-sync in this checkout")
     assert result.returncode == 0, result.stderr
     assert "blocker-sync" not in result.stderr, result.stderr
+
+
+@needs_systemd
+def test_systemd_accepts_the_focus_apps_unit(tmp_path):
+    unit = tmp_path / "blocker-focus-apps.service"
+    unit.write_text(installer._focus_apps_unit())
+    result = systemd_verify(unit)
+    if not installer.VENV_BLOCKER_FOCUS_APPS.exists():
+        pytest.skip("no .venv/bin/blocker-focus-apps in this checkout")
+    assert result.returncode == 0, result.stderr
+    assert "blocker-focus-apps" not in result.stderr, result.stderr
 
 
 @needs_systemd

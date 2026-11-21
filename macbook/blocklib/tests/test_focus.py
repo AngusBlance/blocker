@@ -4,7 +4,7 @@ import threading
 import pytest
 
 from blocklib import focus
-from blocklib.focus import Focus, FocusError
+from blocklib.focus import AllowedApp, Focus, FocusError
 from blocklib.ws_server import SyncServer
 
 NOW = 1_760_000_000_000
@@ -50,6 +50,8 @@ def test_starting_checks_length_contents_and_that_none_is_running():
         Focus(NOW + 13 * HOUR, DOCS.sites, DOCS.domains),
         Focus(NOW + HOUR, (), ()),
         Focus(NOW + HOUR, ("x",), ("not a domain",)),
+        Focus(NOW + HOUR, (), (), (AllowedApp("../evil", "Evil"),)),
+        Focus(NOW + HOUR, (), (), (AllowedApp("", "Nothing"),)),
     ]:
         with pytest.raises(FocusError):
             focus.start(None, bad, NOW)
@@ -117,3 +119,34 @@ def test_the_sync_daemon_rebroadcasts_when_focus_changes(tmp_path):
     finally:
         stop.set()
         thread.join(timeout=2)
+
+
+OBSIDIAN = AllowedApp("obsidian_obsidian", "Obsidian")
+
+
+def test_focus_can_allow_apps_and_keeps_them():
+    with_apps = Focus(NOW + HOUR, DOCS.sites, DOCS.domains, (OBSIDIAN,))
+    assert focus.active(focus.start(None, with_apps, NOW), NOW) == with_apps
+
+
+def test_apps_alone_are_enough_to_start():
+    apps_only = Focus(NOW + HOUR, (), (), (OBSIDIAN,))
+    assert focus.active(focus.start(None, apps_only, NOW), NOW) == apps_only
+
+
+def test_a_focus_saved_before_apps_still_reads_with_none():
+    old = json.dumps(
+        {"endsAt": NOW + HOUR, "sites": ["Udemy"], "domains": ["udemy.com"]}
+    )
+    assert focus.active(old, NOW) == Focus(NOW + HOUR, ("Udemy",), ("udemy.com",))
+
+
+@pytest.mark.parametrize(
+    "apps", ['"x"', "[1]", '[{"id": "a"}]', '[{"id": 1, "name": "A"}]']
+)
+def test_malformed_apps_count_as_no_focus(apps):
+    text = (
+        f'{{"endsAt": {NOW + HOUR}, "sites": ["Udemy"], '
+        f'"domains": ["udemy.com"], "apps": {apps}}}'
+    )
+    assert focus.active(text, NOW) is None
