@@ -78,6 +78,49 @@ def test_install_carries_on_without_the_scheduler(monkeypatch, capsys):
     assert str(installer.EXTENSION_DIR) in out
 
 
+def test_install_sets_up_focus_apps_where_the_os_has_it(monkeypatch, capsys):
+    calls = []
+    platform = fake_os(calls)
+    platform.install_focus_apps = lambda: calls.append("focus apps")
+    platform.FOCUS_APPS_NAME = "focus-unit"
+    monkeypatch.setattr(installer, "this_os", lambda: platform)
+    monkeypatch.setenv("BLOCKER_NO_SCHEDULER", "1")
+    monkeypatch.setenv("BLOCKER_NO_OPEN_CHROME", "1")
+
+    installer.install()
+
+    assert calls == ["launcher", "sync", "focus apps"]
+    assert "(focus-unit)" in capsys.readouterr().out
+
+
+def test_install_says_so_when_the_focus_app_closer_cant_go_in(monkeypatch, capsys):
+    calls = []
+    platform = fake_os(calls)
+
+    def fails():
+        raise RuntimeError("run `uv sync`")
+
+    platform.install_focus_apps = fails
+    platform.FOCUS_APPS_NAME = "focus-unit"
+    monkeypatch.setattr(installer, "this_os", lambda: platform)
+    monkeypatch.setenv("BLOCKER_NO_SCHEDULER", "1")
+    monkeypatch.setenv("BLOCKER_NO_OPEN_CHROME", "1")
+
+    installer.install()
+
+    out = capsys.readouterr().out
+    assert (
+        "Focus app closer NOT installed (focus won't close apps): run `uv sync`" in out
+    )
+    assert "installed and running (focus-unit)" not in out
+
+
+def test_the_macs_installer_has_no_focus_app_closer():
+    from blocker_tui import installer_macos
+
+    assert not hasattr(installer_macos, "install_focus_apps")
+
+
 def test_install_can_skip_the_scheduler(monkeypatch):
     calls = []
     monkeypatch.setattr(installer, "this_os", lambda: fake_os(calls))

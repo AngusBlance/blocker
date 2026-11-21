@@ -33,3 +33,13 @@ def isolated_schedules(tmp_path, monkeypatch):
     monkeypatch.setattr("blocker_tui.schedules.SCHEDULES_PATH", path)
     monkeypatch.setattr("blocker_tui.app.scheduler_installed", lambda: True)
     return path
+
+
+@pytest.fixture(autouse=True)
+def isolated_focus(tmp_path, monkeypatch):
+    """Keeps every test off the real ~/.blocker/focus.json, and off this
+    machine's installed apps (tests that want apps set their own)."""
+    path = tmp_path / "focus.json"
+    monkeypatch.setattr("blocker_tui.app.FOCUS_PATH", path)
+    monkeypatch.setattr("blocker_tui.app.choosable_apps", lambda: ([], []))
+    return path

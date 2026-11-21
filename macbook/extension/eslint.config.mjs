@@ -15,4 +15,14 @@ export default defineConfig([
       globals: { ...globals.serviceworker, ...globals.webextensions },
     },
   },
+  {
+    // The page shown when focus mode blocks a tab.
+    files: ['src/focus.js'],
+    languageOptions: { sourceType: 'script', globals: globals.browser },
+  },
+  {
+    files: ['test/**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globals.node },
+  },
 ]);

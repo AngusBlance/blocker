@@ -128,6 +128,17 @@ def install() -> None:
     print(f"Installed {platform.install_launcher()}")
     platform.install_sync_daemon()
     print(f"Sync daemon installed and running ({platform.SYNC_NAME})")
+    # Focus closing apps is Linux only so far; the Mac's installer has none.
+    install_focus_apps = getattr(platform, "install_focus_apps", None)
+    if install_focus_apps is not None:
+        try:
+            install_focus_apps()
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+            print(f"Focus app closer NOT installed (focus won't close apps): {e}")
+        else:
+            print(
+                f"Focus app closer installed and running ({platform.FOCUS_APPS_NAME})"
+            )
     if not os.environ.get("BLOCKER_NO_SCHEDULER"):
         print("\nSchedules need a small helper that runs as root, so sudo will")
         print("ask for your password (once):")

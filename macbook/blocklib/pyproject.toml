@@ -6,6 +6,7 @@ dependencies = ["websockets"]
 
 [project.scripts]
 blocker-sync = "blocklib.sync_daemon:main"
+blocker-focus-apps = "blocklib.linux_apps:main"
 
 [dependency-groups]
 dev = ["pytest"]
